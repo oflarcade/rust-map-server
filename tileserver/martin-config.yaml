@@ -1,0 +1,11 @@
+# Martin configuration for Docker/Linux - port 3000
+# Used by docker-compose.tenant.yml
+
+listen_addresses: '0.0.0.0:3000'
+worker_processes: 4
+keep_alive: 75
+
+pmtiles:
+  paths:
+    - /data/pmtiles
+    - /data/boundaries

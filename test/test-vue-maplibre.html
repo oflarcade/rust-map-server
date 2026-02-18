@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Vue 3 + MapLibre - Tenant Tile Test</title>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    #app { display: flex; height: 100vh; }
+    .sidebar {
+      width: 280px; background: #1a1a2e; color: #eee; padding: 16px;
+      display: flex; flex-direction: column; gap: 12px; overflow-y: auto;
+      flex-shrink: 0;
+    }
+    .sidebar h2 { font-size: 15px; color: #0ff; }
+    .sidebar label { font-size: 12px; color: #aaa; display: block; margin-bottom: 4px; }
+    .sidebar select, .sidebar input {
+      width: 100%; padding: 8px; background: #16213e; color: #eee;
+      border: 1px solid #444; border-radius: 4px; font-size: 13px;
+    }
+    .map-wrap { flex: 1; position: relative; }
+    #map { width: 100%; height: 100%; }
+    .zoom-badge {
+      position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.75);
+      color: #fff; padding: 6px 12px; border-radius: 4px; font-size: 13px;
+      font-family: monospace; z-index: 10; pointer-events: none;
+    }
+    .status {
+      padding: 8px; border-radius: 4px; font-size: 12px; font-weight: 600; text-align: center;
+    }
+    .status-ok { background: #0a3d0a; color: #0f0; }
+    .status-err { background: #3d0a0a; color: #f44; }
+    .status-loading { background: #3d3d0a; color: #ff0; }
+    .log-box {
+      flex: 1; overflow-y: auto; font-size: 11px; font-family: monospace;
+      background: #0d0d1a; border-radius: 4px; padding: 8px; min-height: 100px;
+    }
+    .log-entry { padding: 2px 0; border-bottom: 1px solid #222; word-break: break-all; }
+    .log-ok { color: #0f0; }
+    .log-err { color: #f44; }
+    .log-info { color: #0ff; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="sidebar">
+      <h2>Tile Server Test (Vue 3)</h2>
+
+      <div>
+        <label>Martin URL (direct)</label>
+        <input v-model="serverUrl" />
+      </div>
+
+      <div>
+        <label>Tenant</label>
+        <select v-model="selectedTenantId" @change="onTenantChange">
+          <option v-for="t in tenants" :key="t.id" :value="t.id">
+            {{ t.id }} - {{ t.name }}
+          </option>
+        </select>
+      </div>
+
+      <div :class="['status', statusClass]">{{ statusText }}</div>
+
+      <div>
+        <label>Request Log</label>
+        <div class="log-box">
+          <div v-for="(entry, i) in logs" :key="i" :class="['log-entry', entry.cls]">
+            [{{ entry.time }}] {{ entry.msg }}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="map-wrap">
+      <div class="zoom-badge">z{{ currentZoom.toFixed(1) }}</div>
+      <div id="map"></div>
+    </div>
+  </div>
+
+  <script>
+    const { createApp, ref, reactive, onMounted, computed } = Vue;
+
+    createApp({
+      setup() {
+        // Martin direct URL (port 3000) - avoids CORS issues with Nginx
+        const serverUrl = ref("http://localhost:3000");
+        const selectedTenantId = ref("18");
+        const currentZoom = ref(8);
+        const logs = reactive([]);
+        const statusText = ref("Loading...");
+        const statusClass = ref("status-loading");
+        let map = null;
+
+        const tenants = [
+          { id: "1",  name: "Bridge Kenya",         source: "kenya-detailed",                    lat: 0.0,   lon: 37.9,  zoom: 6 },
+          { id: "2",  name: "Bridge Uganda",         source: "uganda-detailed",                   lat: 1.4,   lon: 32.3,  zoom: 6 },
+          { id: "3",  name: "Bridge Nigeria (L+O)",  source: "nigeria-lagos-osun",                lat: 7.0,   lon: 3.9,   zoom: 8 },
+          { id: "4",  name: "Bridge Liberia",        source: "liberia-detailed",                  lat: 6.4,   lon: -9.4,  zoom: 7 },
+          { id: "5",  name: "Bridge India (AP)",     source: "india-andhrapradesh",               lat: 15.9,  lon: 80.0,  zoom: 7 },
+          { id: "9",  name: "EdoBEST (Edo)",         source: "nigeria-edo",                       lat: 6.6,   lon: 5.9,   zoom: 8 },
+          { id: "11", name: "EKOEXCEL (Lagos)",      source: "nigeria-lagos",                     lat: 6.5,   lon: 3.4,   zoom: 9 },
+          { id: "12", name: "Rwanda EQUIP",          source: "rwanda-detailed",                   lat: -1.9,  lon: 29.9,  zoom: 8 },
+          { id: "14", name: "Kwara Learn",           source: "nigeria-kwara",                     lat: 8.5,   lon: 4.5,   zoom: 8 },
+          { id: "15", name: "Manipur Education",     source: "india-manipur",                     lat: 24.8,  lon: 93.9,  zoom: 8 },
+          { id: "16", name: "Bayelsa Prime",         source: "nigeria-bayelsa",                   lat: 4.9,   lon: 6.3,   zoom: 8 },
+          { id: "17", name: "Espoir CAR",            source: "central-african-republic-detailed", lat: 6.6,   lon: 20.9,  zoom: 6 },
+          { id: "18", name: "Jigawa Unite",          source: "nigeria-jigawa",                    lat: 12.0,  lon: 9.36,  zoom: 8 },
+        ];
+
+        function log(msg, cls = "log-info") {
+          const time = new Date().toLocaleTimeString();
+          logs.unshift({ time, msg, cls });
+          if (logs.length > 200) logs.length = 200;
+        }
+
+        function getTenant() {
+          return tenants.find(t => t.id === selectedTenantId.value);
+        }
+
+        function initMap() {
+          const tenant = getTenant();
+          const url = serverUrl.value.replace(/\/+$/, "");
+
+          statusText.value = "Loading...";
+          statusClass.value = "status-loading";
+          log("Initializing map for tenant " + tenant.id + " (" + tenant.name + ")", "log-info");
+
+          if (map) {
+            map.remove();
+            map = null;
+          }
+
+          // Martin direct URL: /{source}/{z}/{x}/{y}
+          var tileUrl = url + "/" + tenant.source + "/{z}/{x}/{y}";
+          log("Tile URL: " + tileUrl, "log-info");
+
+          map = new maplibregl.Map({
+            container: "map",
+            center: [tenant.lon, tenant.lat],
+            zoom: tenant.zoom,
+            style: {
+              version: 8,
+              glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+              sources: {
+                "base-tiles": {
+                  type: "vector",
+                  tiles: [tileUrl],
+                  minzoom: 6,
+                  maxzoom: 14,
+                },
+              },
+              layers: [
+                {
+                  id: "background",
+                  type: "background",
+                  paint: { "background-color": "#f0ede6" },
+                },
+                {
+                  id: "water",
+                  type: "fill",
+                  source: "base-tiles",
+                  "source-layer": "water",
+                  paint: { "fill-color": "#a0cfdf" },
+                },
+                {
+                  id: "landcover",
+                  type: "fill",
+                  source: "base-tiles",
+                  "source-layer": "landcover",
+                  paint: { "fill-color": "#c8e6c9", "fill-opacity": 0.5 },
+                },
+                {
+                  id: "landuse",
+                  type: "fill",
+                  source: "base-tiles",
+                  "source-layer": "landuse",
+                  paint: { "fill-color": "#e8e8d0", "fill-opacity": 0.4 },
+                },
+                {
+                  id: "road",
+                  type: "line",
+                  source: "base-tiles",
+                  "source-layer": "transportation",
+                  paint: { "line-color": "#ccc", "line-width": 1 },
+                },
+                {
+                  id: "road-major",
+                  type: "line",
+                  source: "base-tiles",
+                  "source-layer": "transportation",
+                  filter: ["in", "class", "primary", "secondary", "trunk", "motorway"],
+                  paint: { "line-color": "#f9a825", "line-width": 2 },
+                },
+                {
+                  id: "building",
+                  type: "fill",
+                  source: "base-tiles",
+                  "source-layer": "building",
+                  minzoom: 13,
+                  paint: { "fill-color": "#d6c4a8", "fill-opacity": 0.6 },
+                },
+                {
+                  id: "place-label",
+                  type: "symbol",
+                  source: "base-tiles",
+                  "source-layer": "place",
+                  layout: {
+                    "text-field": "{name:latin}",
+                    "text-size": ["interpolate", ["linear"], ["zoom"], 6, 10, 10, 13, 14, 16],
+                  },
+                  paint: {
+                    "text-color": "#333",
+                    "text-halo-color": "#fff",
+                    "text-halo-width": 1.5,
+                  },
+                },
+              ],
+            },
+          });
+
+          map.on("zoom", function () {
+            currentZoom.value = map.getZoom();
+          });
+
+          map.on("data", function (e) {
+            if (e.dataType === "source" && e.sourceId === "base-tiles" && e.isSourceLoaded) {
+              statusText.value = "Tiles loaded";
+              statusClass.value = "status-ok";
+              log("Source loaded", "log-ok");
+            }
+          });
+
+          map.on("error", function (e) {
+            var msg = e.error ? e.error.message : JSON.stringify(e);
+            log("Error: " + msg, "log-err");
+            statusText.value = "Error";
+            statusClass.value = "status-err";
+          });
+
+          map.on("load", function () {
+            log("Map loaded", "log-ok");
+            map.addControl(new maplibregl.NavigationControl());
+          });
+        }
+
+        function onTenantChange() {
+          initMap();
+        }
+
+        onMounted(function () {
+          initMap();
+        });
+
+        return {
+          serverUrl,
+          selectedTenantId,
+          currentZoom,
+          logs,
+          statusText,
+          statusClass,
+          tenants,
+          onTenantChange,
+        };
+      },
+    }).mount("#app");
+  </script>
+</body>
+</html>

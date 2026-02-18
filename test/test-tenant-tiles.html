@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Tile Server Debug - Tenant Test</title>
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+  <style>
+    body { margin: 0; font-family: monospace; }
+    #map { position: absolute; top: 0; left: 0; right: 300px; bottom: 0; }
+    #panel {
+      position: absolute; top: 0; right: 0; width: 300px; bottom: 0;
+      background: #1a1a2e; color: #eee; overflow-y: auto; padding: 12px;
+      box-sizing: border-box; font-size: 12px;
+    }
+    #panel h2 { margin: 0 0 8px; color: #0ff; font-size: 14px; }
+    #panel label { display: block; margin: 6px 0 2px; color: #aaa; }
+    #panel select, #panel input, #panel button {
+      width: 100%; padding: 6px; margin-bottom: 6px;
+      background: #16213e; color: #eee; border: 1px solid #444;
+      font-family: monospace; font-size: 12px;
+    }
+    #panel button { background: #0f3460; cursor: pointer; }
+    #panel button:hover { background: #1a5276; }
+    #log { margin-top: 10px; }
+    .log-entry { padding: 4px 0; border-bottom: 1px solid #333; word-break: break-all; }
+    .log-ok { color: #0f0; }
+    .log-err { color: #f44; }
+    .log-warn { color: #ff0; }
+    .log-info { color: #0ff; }
+    #status { padding: 8px; margin: 8px 0; border-radius: 4px; font-weight: bold; }
+    .status-ok { background: #0a3d0a; color: #0f0; }
+    .status-err { background: #3d0a0a; color: #f44; }
+    .status-loading { background: #3d3d0a; color: #ff0; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="panel">
+    <h2>🗺️ Tile Server Debug</h2>
+
+    <label>Tile Server URL</label>
+    <input id="serverUrl" value="http://localhost:8080" />
+
+    <label>Tenant ID (X-Tenant-ID header)</label>
+    <select id="tenantSelect">
+      <option value="1"  data-lat="0.0"    data-lon="37.9"  data-zoom="6">1 - Bridge Kenya</option>
+      <option value="2"  data-lat="1.4"    data-lon="32.3"  data-zoom="6">2 - Bridge Uganda</option>
+      <option value="3"  data-lat="7.0"    data-lon="3.9"   data-zoom="8">3 - Bridge Nigeria (Lagos+Osun)</option>
+      <option value="4"  data-lat="6.4"    data-lon="-9.4"  data-zoom="7">4 - Bridge Liberia</option>
+      <option value="5"  data-lat="15.9"   data-lon="80.0"  data-zoom="7">5 - Bridge India (AP)</option>
+      <option value="9"  data-lat="6.6"    data-lon="5.9"   data-zoom="9">9 - EdoBEST (Edo)</option>
+      <option value="11" data-lat="6.5"    data-lon="3.4"   data-zoom="10">11 - EKOEXCEL (Lagos)</option>
+      <option value="12" data-lat="-1.9"   data-lon="29.9"  data-zoom="8">12 - Rwanda EQUIP</option>
+      <option value="14" data-lat="8.5"    data-lon="4.5"   data-zoom="9">14 - Kwara Learn</option>
+      <option value="15" data-lat="24.8"   data-lon="93.9"  data-zoom="8">15 - Manipur Education</option>
+      <option value="16" data-lat="4.9"    data-lon="6.3"   data-zoom="9">16 - Bayelsa Prime</option>
+      <option value="17" data-lat="6.6"    data-lon="20.9"  data-zoom="6">17 - Espoir CAR</option>
+      <option value="18" data-lat="12.2"   data-lon="9.5"   data-zoom="8" selected>18 - Jigawa Unite</option>
+    </select>
+
+    <button onclick="loadMap()">🔄 Load Tiles</button>
+    <button onclick="testDirectTile()">🧪 Test Single Tile (curl-like)</button>
+    <button onclick="testCatalog()">📋 Check Martin Catalog</button>
+    <button onclick="testHealth()">💚 Health Check</button>
+    <button onclick="clearLog()">🗑️ Clear Log</button>
+
+    <div id="status" class="status-loading">Not loaded</div>
+
+    <label>Request Log</label>
+    <div id="log"></div>
+  </div>
+
+  <script>
+    let map = null;
+    let tileRequestCount = 0;
+    let tileErrorCount = 0;
+    let tileSuccessCount = 0;
+
+    function log(msg, cls = "log-info") {
+      const el = document.getElementById("log");
+      const ts = new Date().toLocaleTimeString();
+      el.innerHTML = `<div class="log-entry ${cls}">[${ts}] ${msg}</div>` + el.innerHTML;
+    }
+
+    function clearLog() {
+      document.getElementById("log").innerHTML = "";
+      tileRequestCount = 0;
+      tileErrorCount = 0;
+      tileSuccessCount = 0;
+    }
+
+    function setStatus(msg, cls) {
+      const el = document.getElementById("status");
+      el.textContent = msg;
+      el.className = cls;
+    }
+
+    function getServerUrl() {
+      return document.getElementById("serverUrl").value.replace(/\/+$/, "");
+    }
+
+    function getTenantId() {
+      return document.getElementById("tenantSelect").value;
+    }
+
+    function getSelectedOption() {
+      const sel = document.getElementById("tenantSelect");
+      return sel.options[sel.selectedIndex];
+    }
+
+    // Health check
+    async function testHealth() {
+      const url = `${getServerUrl()}/health`;
+      log(`GET ${url}`, "log-info");
+      try {
+        const r = await fetch(url);
+        const text = await r.text();
+        log(`✅ ${r.status} — ${text.trim()}`, "log-ok");
+      } catch (e) {
+        log(`❌ Health failed: ${e.message}`, "log-err");
+      }
+    }
+
+    // Catalog check
+    async function testCatalog() {
+      // Try Martin direct on port 3000
+      const url = "http://localhost:3000/catalog";
+      log(`GET ${url}`, "log-info");
+      try {
+        const r = await fetch(url);
+        const data = await r.json();
+        const sources = Object.keys(data.tiles || {});
+        log(`✅ Martin has ${sources.length} sources:`, "log-ok");
+        sources.forEach(s => log(`  📦 ${s}`, "log-info"));
+      } catch (e) {
+        log(`❌ Catalog failed: ${e.message}`, "log-err");
+        log("Make sure Martin is running on port 3000", "log-warn");
+      }
+    }
+
+    // Direct tile test (like curl)
+    async function testDirectTile() {
+      const tenantId = getTenantId();
+      const opt = getSelectedOption();
+      const lat = parseFloat(opt.dataset.lat);
+      const lon = parseFloat(opt.dataset.lon);
+      const zoom = parseInt(opt.dataset.zoom);
+
+      // Convert lat/lon to tile x/y
+      const x = Math.floor((lon + 180) / 360 * Math.pow(2, zoom));
+      const y = Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom));
+
+      const url = `${getServerUrl()}/tiles/${zoom}/${x}/${y}`;
+      log(`🧪 Direct test: GET ${url}`, "log-info");
+      log(`   X-Tenant-ID: ${tenantId}`, "log-info");
+      log(`   Coords: lat=${lat}, lon=${lon}, z=${zoom}, x=${x}, y=${y}`, "log-info");
+
+      try {
+        const r = await fetch(url, {
+          headers: { "X-Tenant-ID": tenantId }
+        });
+
+        const tenantSource = r.headers.get("X-Tenant-Source") || "(not set)";
+
+        if (r.ok) {
+          const blob = await r.blob();
+          log(`✅ ${r.status} — ${blob.size} bytes, type: ${r.headers.get("content-type")}`, "log-ok");
+          log(`   X-Tenant-Source: ${tenantSource}`, "log-ok");
+        } else {
+          const text = await r.text();
+          log(`❌ ${r.status} — ${text}`, "log-err");
+          log(`   X-Tenant-Source: ${tenantSource}`, "log-err");
+        }
+      } catch (e) {
+        log(`❌ Request failed: ${e.message}`, "log-err");
+      }
+
+      // Also test Martin directly
+      const sel = document.getElementById("tenantSelect");
+      const sourceMap = {
+        "1": "kenya-detailed", "2": "uganda-detailed", "3": "nigeria-lagos-osun",
+        "4": "liberia-detailed", "5": "india-andhrapradesh", "9": "nigeria-edo",
+        "11": "nigeria-lagos", "12": "rwanda-detailed", "14": "nigeria-kwara",
+        "15": "india-manipur", "16": "nigeria-bayelsa",
+        "17": "central-african-republic-detailed", "18": "nigeria-jigawa"
+      };
+      const source = sourceMap[tenantId];
+      const martinUrl = `http://localhost:3000/${source}/${zoom}/${x}/${y}`;
+      log(`🔍 Martin direct: GET ${martinUrl}`, "log-info");
+      try {
+        const r2 = await fetch(martinUrl);
+        if (r2.ok) {
+          const blob = await r2.blob();
+          log(`✅ Martin direct: ${r2.status} — ${blob.size} bytes`, "log-ok");
+        } else {
+          log(`❌ Martin direct: ${r2.status}`, "log-err");
+        }
+      } catch (e) {
+        log(`❌ Martin direct failed: ${e.message}`, "log-err");
+      }
+    }
+
+    // Load MapLibre map
+    function loadMap() {
+      const tenantId = getTenantId();
+      const opt = getSelectedOption();
+      const serverUrl = getServerUrl();
+      const lat = parseFloat(opt.dataset.lat);
+      const lon = parseFloat(opt.dataset.lon);
+      const zoom = parseInt(opt.dataset.zoom);
+
+      tileRequestCount = 0;
+      tileErrorCount = 0;
+      tileSuccessCount = 0;
+      setStatus("Loading...", "status-loading");
+      log(`🗺️ Loading map: tenant=${tenantId}, center=[${lon},${lat}], zoom=${zoom}`, "log-info");
+
+      if (map) {
+        map.remove();
+        map = null;
+      }
+
+      map = new maplibregl.Map({
+        container: "map",
+        center: [lon, lat],
+        zoom: zoom,
+        style: {
+          version: 8,
+          sources: {
+            "base-tiles": {
+              type: "vector",
+              tiles: [`${serverUrl}/tiles/{z}/{x}/{y}`],
+              maxzoom: 14,
+            },
+          },
+          layers: [
+            {
+              id: "water",
+              type: "fill",
+              source: "base-tiles",
+              "source-layer": "water",
+              paint: { "fill-color": "#a0cfdf" },
+            },
+            {
+              id: "landcover",
+              type: "fill",
+              source: "base-tiles",
+              "source-layer": "landcover",
+              paint: { "fill-color": "#c8e6c9", "fill-opacity": 0.5 },
+            },
+            {
+              id: "landuse",
+              type: "fill",
+              source: "base-tiles",
+              "source-layer": "landuse",
+              paint: { "fill-color": "#e8e8d0", "fill-opacity": 0.4 },
+            },
+            {
+              id: "road",
+              type: "line",
+              source: "base-tiles",
+              "source-layer": "transportation",
+              paint: { "line-color": "#ddd", "line-width": 1 },
+            },
+            {
+              id: "road-major",
+              type: "line",
+              source: "base-tiles",
+              "source-layer": "transportation",
+              filter: ["in", "class", "primary", "secondary", "trunk", "motorway"],
+              paint: { "line-color": "#f9a825", "line-width": 2 },
+            },
+            {
+              id: "building",
+              type: "fill",
+              source: "base-tiles",
+              "source-layer": "building",
+              minzoom: 13,
+              paint: { "fill-color": "#d6c4a8", "fill-opacity": 0.6 },
+            },
+            {
+              id: "place-label",
+              type: "symbol",
+              source: "base-tiles",
+              "source-layer": "place",
+              layout: {
+                "text-field": "{name:latin}",
+                "text-size": 12,
+              },
+              paint: {
+                "text-color": "#333",
+                "text-halo-color": "#fff",
+                "text-halo-width": 1,
+              },
+            },
+          ],
+        },
+        transformRequest: (url) => {
+          if (url.includes(serverUrl)) {
+            return {
+              url,
+              headers: { "X-Tenant-ID": tenantId },
+            };
+          }
+        },
+      });
+
+      // Track tile loading via source data events
+      map.on("data", (e) => {
+        if (e.dataType === "source" && e.sourceId === "base-tiles") {
+          if (e.isSourceLoaded) {
+            setStatus(
+              `✅ Loaded (${tileSuccessCount} tiles)`,
+              "status-ok"
+            );
+          }
+        }
+      });
+
+      map.on("error", (e) => {
+        tileErrorCount++;
+        const msg = e.error ? e.error.message : JSON.stringify(e);
+        log(`❌ Map error: ${msg}`, "log-err");
+        setStatus(
+          `⚠️ Errors: ${tileErrorCount}`,
+          "status-err"
+        );
+      });
+
+      // Intercept fetch to log tile requests
+      const origFetch = window.fetch;
+      window.fetch = function (...args) {
+        const url = typeof args[0] === "string" ? args[0] : args[0]?.url;
+        if (url && url.includes("/tiles/")) {
+          tileRequestCount++;
+          return origFetch.apply(this, args).then((r) => {
+            if (r.ok) {
+              tileSuccessCount++;
+              log(`✅ ${r.status} ${url.split(serverUrl)[1] || url}`, "log-ok");
+            } else {
+              tileErrorCount++;
+              r.clone().text().then((t) => {
+                log(`❌ ${r.status} ${url.split(serverUrl)[1] || url} — ${t}`, "log-err");
+              });
+            }
+            setStatus(
+              `Tiles: ${tileSuccessCount}✅ ${tileErrorCount}❌ / ${tileRequestCount} total`,
+              tileErrorCount > 0 ? "status-err" : "status-ok"
+            );
+            return r;
+          }).catch((err) => {
+            tileErrorCount++;
+            log(`❌ Fetch error: ${url} — ${err.message}`, "log-err");
+            throw err;
+          });
+        }
+        return origFetch.apply(this, args);
+      };
+
+      map.on("load", () => {
+        log("✅ Map loaded successfully", "log-ok");
+        map.addControl(new maplibregl.NavigationControl());
+      });
+    }
+
+    // Auto-load on page open
+    window.addEventListener("load", () => {
+      testHealth();
+      loadMap();
+    });
+  </script>
+</body>
+</html>

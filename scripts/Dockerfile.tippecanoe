@@ -1,0 +1,12 @@
+FROM alpine:3.19 AS builder
+RUN apk add --no-cache git g++ make sqlite-dev zlib-dev bash
+RUN git clone https://github.com/felt/tippecanoe.git /tippecanoe
+WORKDIR /tippecanoe
+RUN make -j$(nproc) && make install
+
+FROM alpine:3.19
+RUN apk add --no-cache libstdc++ sqlite-libs zlib
+COPY --from=builder /usr/local/bin/tippecanoe /usr/local/bin/
+COPY --from=builder /usr/local/bin/tile-join /usr/local/bin/
+COPY --from=builder /usr/local/bin/tippecanoe-decode /usr/local/bin/
+ENTRYPOINT []

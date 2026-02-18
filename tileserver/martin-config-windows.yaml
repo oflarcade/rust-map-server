@@ -1,0 +1,22 @@
+# Martin configuration for Windows - port 3001
+# Run from project root: martin --config tileserver\martin-config-windows.yaml
+# Or use: .\scripts\run-martin.ps1
+
+listen_addresses: '0.0.0.0:3001'
+worker_processes: 4
+keep_alive: 75
+
+pmtiles:
+  # Auto-discovers all .pmtiles files recursively in these directories.
+  # Source names are derived from filenames (e.g., kenya-detailed.pmtiles → kenya-detailed).
+  # Only existing files are loaded — no errors for files not yet generated.
+  #
+  # Expected sources once all tiles are generated:
+  #   pmtiles/<country>-detailed.pmtiles        — Full country base maps (Planetiler)
+  #   pmtiles/terrain/<country>-<state>.pmtiles  — State-level tiles (Planetiler)
+  #   boundaries/<country>-boundaries.pmtiles    — GADM admin boundaries (tippecanoe)
+  #   boundaries/<country>-admin.pmtiles         — GADM admin overlay
+  #   boundaries/<country>-country.pmtiles       — Country outline
+  paths:
+    - pmtiles
+    - boundaries
