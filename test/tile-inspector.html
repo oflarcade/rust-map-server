@@ -9,15 +9,15 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    #app { display: flex; height: 100vh; }
+    #app { display: grid; grid-template-columns: 340px 1fr 340px; height: 100vh; }
     .sidebar {
-      width: 380px;
       background: #111827;
       color: #e5e7eb;
       overflow-y: auto;
       padding: 14px;
       border-right: 1px solid #1f2937;
     }
+    .sidebar.right { border-right: 0; border-left: 1px solid #1f2937; }
     .map-wrap { flex: 1; position: relative; }
     #map { width: 100%; height: 100%; }
     .section { margin-top: 12px; padding-top: 10px; border-top: 1px solid #1f2937; }
@@ -46,9 +46,26 @@
     .ok { color: #86efac; border-color: #166534; }
     .bad { color: #fca5a5; border-color: #7f1d1d; }
     .subhead { font-size: 13px; margin-bottom: 6px; color: #cbd5e1; font-weight: 600; }
-    .layers { max-height: 200px; overflow-y: auto; background: #0b1220; border: 1px solid #1f2937; border-radius: 6px; padding: 8px; }
-    .layer-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 12px; }
-    .feature-list { max-height: 130px; overflow-y: auto; border: 1px solid #1f2937; border-radius: 6px; padding: 8px; background: #0b1220; font-size: 12px; }
+    .toggle-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .toggle-btn {
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: 8px;
+      font-size: 12px;
+      background: #0b1220;
+      color: #e5e7eb;
+      text-align: left;
+      cursor: pointer;
+    }
+    .toggle-btn.on {
+      border-color: #0ea5e9;
+      background: #082f49;
+      color: #bae6fd;
+    }
+    .feature-list { max-height: 190px; overflow-y: auto; border: 1px solid #1f2937; border-radius: 6px; padding: 8px; background: #0b1220; font-size: 12px; }
+    .feature-item { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; border-bottom: 1px solid #172033; }
+    .feature-item:last-child { border-bottom: 0; }
+    .feature-count { color: #67e8f9; font-size: 11px; }
     .zoom-badge {
       position: absolute;
       top: 10px;
@@ -106,23 +123,32 @@
       </div>
 
       <div class="section">
-        <div class="subhead">Layer toggles</div>
-        <div class="layers">
-          <div v-for="row in visibleLayerRows" :key="row.id" class="layer-row">
-            <input type="checkbox" :checked="row.visible" @change="toggleLayer(row.id, $event.target.checked)" />
-            <span>{{ row.id }} ({{ row.type }})</span>
-          </div>
-          <div v-if="visibleLayerRows.length === 0" class="kv">No layers loaded yet.</div>
+        <div class="subhead">Base map data</div>
+        <div class="toggle-grid">
+          <button
+            v-for="row in baseControls"
+            :key="row.id"
+            class="toggle-btn"
+            :class="{ on: row.visible }"
+            @click="toggleControl(row)"
+          >
+            {{ row.label }}
+          </button>
         </div>
       </div>
 
       <div class="section">
-        <div class="subhead">Boundary features (loaded tiles)</div>
-        <div class="kv">States: {{ boundarySummary.states }}</div>
-        <div class="kv">LGAs: {{ boundarySummary.lgas }}</div>
-        <div class="feature-list">
-          <div v-for="name in boundarySummary.sampleNames" :key="name">{{ name }}</div>
-          <div v-if="boundarySummary.sampleNames.length === 0">No boundary features loaded at current view.</div>
+        <div class="subhead">Boundary data</div>
+        <div class="toggle-grid">
+          <button
+            v-for="row in boundaryControls"
+            :key="row.id"
+            class="toggle-btn"
+            :class="{ on: row.visible }"
+            @click="toggleControl(row)"
+          >
+            {{ row.label }}
+          </button>
         </div>
       </div>
     </div>
@@ -132,6 +158,40 @@
         z{{ currentZoom.toFixed(1) }} (expected {{ baseMeta.minzoom ?? '-' }}-{{ baseMeta.maxzoom ?? '-' }})
       </div>
       <div id="map"></div>
+    </div>
+
+    <div class="sidebar right">
+      <div class="title">Boundary Explorer</div>
+
+      <div class="section">
+        <div class="subhead">Loaded feature snapshot</div>
+        <div class="kv"><strong>Visible states:</strong> {{ boundarySummary.states }}</div>
+        <div class="kv"><strong>Visible LGAs:</strong> {{ boundarySummary.lgas }}</div>
+        <div class="kv"><strong>Unique states:</strong> {{ boundarySummary.stateNames.length }}</div>
+        <div class="kv"><strong>Unique LGAs:</strong> {{ boundarySummary.lgaNames.length }}</div>
+      </div>
+
+      <div class="section">
+        <div class="subhead">States in current view</div>
+        <div class="feature-list">
+          <div v-for="name in boundarySummary.stateNames" :key="'s-' + name" class="feature-item">
+            <span>{{ name }}</span>
+            <span class="feature-count">State</span>
+          </div>
+          <div v-if="boundarySummary.stateNames.length === 0">No state features loaded at current view.</div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="subhead">LGAs in current view</div>
+        <div class="feature-list">
+          <div v-for="name in boundarySummary.lgaNames" :key="'l-' + name" class="feature-item">
+            <span>{{ name }}</span>
+            <span class="feature-count">LGA</span>
+          </div>
+          <div v-if="boundarySummary.lgaNames.length === 0">No LGA features loaded at current view.</div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -147,8 +207,8 @@
         const catalogLoaded = ref(false);
         const baseMeta = reactive({});
         const boundaryMeta = reactive({});
-        const visibleLayerRows = ref([]);
-        const boundarySummary = reactive({ states: 0, lgas: 0, sampleNames: [] });
+        const dataControls = ref([]);
+        const boundarySummary = reactive({ states: 0, lgas: 0, stateNames: [], lgaNames: [] });
         let map = null;
 
         const tenants = [
@@ -187,15 +247,8 @@
 
         function describeBaseLayers() {
           const layers = Array.isArray(baseMeta.vector_layers) ? baseMeta.vector_layers : [];
-          const names = layers.map(l => l.id);
-          const labels = [];
-          if (names.includes("transportation")) labels.push("roads");
-          if (names.includes("building")) labels.push("buildings");
-          if (names.includes("water")) labels.push("water");
-          if (names.includes("landuse")) labels.push("landuse");
-          if (names.includes("landcover")) labels.push("landcover");
-          if (names.includes("place")) labels.push("places");
-          return labels.length ? labels.join(", ") : "No known layers found";
+          const names = layers.map(l => l && l.id).filter(Boolean);
+          return names.length ? names.join(", ") : "No layers found";
         }
 
         async function fetchJson(url) {
@@ -253,27 +306,51 @@
           };
         }
 
-        function updateToggleRows() {
+        function updateControlStates() {
           if (!map || !map.getStyle()) {
-            visibleLayerRows.value = [];
+            dataControls.value = [];
             return;
           }
-          visibleLayerRows.value = map.getStyle().layers
-            .filter(l => l.id !== "background")
-            .map(l => ({ id: l.id, type: l.type, visible: (map.getLayoutProperty(l.id, "visibility") || "visible") !== "none" }));
+          dataControls.value = dataControls.value.map((row) => {
+            const visibleCount = row.layers.filter((id) => map.getLayer(id) && (map.getLayoutProperty(id, "visibility") || "visible") !== "none").length;
+            return { ...row, visible: visibleCount > 0 };
+          });
         }
 
-        function toggleLayer(layerId, visible) {
-          if (!map || !map.getLayer(layerId)) return;
-          map.setLayoutProperty(layerId, "visibility", visible ? "visible" : "none");
-          updateToggleRows();
+        function initControls() {
+          dataControls.value = [
+            { id: "water", group: "base", label: "Water", layers: ["base-water"], visible: true },
+            { id: "landcover", group: "base", label: "Landcover", layers: ["base-landcover"], visible: true },
+            { id: "landuse", group: "base", label: "Landuse", layers: ["base-landuse"], visible: true },
+            { id: "roads", group: "base", label: "Roads", layers: ["base-roads"], visible: true },
+            { id: "roads-major", group: "base", label: "Major roads", layers: ["base-roads-major"], visible: true },
+            { id: "buildings", group: "base", label: "Buildings", layers: ["base-buildings"], visible: true },
+            { id: "places", group: "base", label: "Places", layers: ["base-place-label"], visible: true },
+            { id: "boundary-fill", group: "boundary", label: "Boundary areas", layers: ["boundary-fill"], visible: true },
+            { id: "boundary-state", group: "boundary", label: "State lines", layers: ["boundary-state-line"], visible: true },
+            { id: "boundary-lga", group: "boundary", label: "LGA lines", layers: ["boundary-lga-line"], visible: true },
+            { id: "boundary-label", group: "boundary", label: "Boundary labels", layers: ["boundary-label"], visible: true },
+          ];
+          updateControlStates();
+        }
+
+        function toggleControl(row) {
+          if (!map) return;
+          const nextVisible = !row.visible;
+          for (const layerId of row.layers) {
+            if (map.getLayer(layerId)) {
+              map.setLayoutProperty(layerId, "visibility", nextVisible ? "visible" : "none");
+            }
+          }
+          updateControlStates();
           refreshBoundarySummary();
         }
 
         function refreshBoundarySummary() {
           boundarySummary.states = 0;
           boundarySummary.lgas = 0;
-          boundarySummary.sampleNames = [];
+          boundarySummary.stateNames = [];
+          boundarySummary.lgaNames = [];
           if (!map || !map.isStyleLoaded() || !map.getLayer("boundary-fill")) return;
           let features = [];
           try {
@@ -281,21 +358,30 @@
           } catch (_e) {
             features = [];
           }
-          const names = new Set();
+          const stateNames = new Set();
+          const lgaNames = new Set();
           let states = 0;
           let lgas = 0;
           for (const f of features) {
             const props = f.properties || {};
             const rawLevel = props.admin_level ?? props.ADMIN_LEVEL ?? "";
             const level = Number(rawLevel);
-            if (level === 4 || props.NAME_1) states += 1;
-            if (level === 6 || props.NAME_2) lgas += 1;
-            const label = props.name || props.NAME_2 || props.NAME_1;
-            if (label && names.size < 25) names.add(String(label));
+            const label = String(props.name || props.NAME_2 || props.NAME_1 || "");
+            if (level === 4 || props.NAME_1) {
+              states += 1;
+              if (props.NAME_1) stateNames.add(String(props.NAME_1));
+              else if (label) stateNames.add(label);
+            }
+            if (level === 6 || props.NAME_2) {
+              lgas += 1;
+              if (props.NAME_2) lgaNames.add(String(props.NAME_2));
+              else if (label) lgaNames.add(label);
+            }
           }
           boundarySummary.states = states;
           boundarySummary.lgas = lgas;
-          boundarySummary.sampleNames = Array.from(names);
+          boundarySummary.stateNames = Array.from(stateNames).sort((a, b) => a.localeCompare(b)).slice(0, 40);
+          boundarySummary.lgaNames = Array.from(lgaNames).sort((a, b) => a.localeCompare(b)).slice(0, 80);
         }
 
         async function reloadTenant() {
@@ -331,10 +417,14 @@
           map.on("moveend", refreshBoundarySummary);
           map.on("idle", () => {
             currentZoom.value = map.getZoom();
-            updateToggleRows();
+            if (!dataControls.value.length) initControls();
+            updateControlStates();
             refreshBoundarySummary();
           });
         }
+
+        const baseControls = computed(() => dataControls.value.filter(row => row.group === "base"));
+        const boundaryControls = computed(() => dataControls.value.filter(row => row.group === "boundary"));
 
         onMounted(reloadTenant);
 
@@ -349,12 +439,13 @@
           boundarySourceFound,
           baseMeta,
           boundaryMeta,
-          visibleLayerRows,
+          baseControls,
+          boundaryControls,
           boundarySummary,
           currentZoom,
           isZoomOutOfRange,
           reloadTenant,
-          toggleLayer,
+          toggleControl,
           fmtBounds,
           describeBaseLayers,
         };
