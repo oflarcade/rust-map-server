@@ -62,7 +62,7 @@
       background: #082f49;
       color: #bae6fd;
     }
-    .feature-list { max-height: 190px; overflow-y: auto; border: 1px solid #1f2937; border-radius: 6px; padding: 8px; background: #0b1220; font-size: 12px; }
+    .feature-list { max-height: 280px; overflow-y: auto; border: 1px solid #1f2937; border-radius: 6px; padding: 8px; background: #0b1220; font-size: 12px; }
     .feature-item { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; border-bottom: 1px solid #172033; }
     .feature-item:last-child { border-bottom: 0; }
     .feature-count { color: #67e8f9; font-size: 11px; }
@@ -115,11 +115,25 @@
 
       <div class="section">
         <div class="subhead">Boundary metadata</div>
-        <div class="kv"><strong>Source:</strong> {{ currentTenant.boundarySource }}</div>
+        <div class="kv"><strong>Active source:</strong> {{ boundaryDataSource === 'gadm' && currentTenant.gadmBoundarySource ? currentTenant.gadmBoundarySource : currentTenant.boundarySource }}</div>
         <div class="kv"><strong>Zoom:</strong> {{ boundaryMeta.minzoom ?? '-' }} - {{ boundaryMeta.maxzoom ?? '-' }}</div>
         <div class="kv"><strong>Bounds:</strong> {{ fmtBounds(boundaryMeta.bounds) }}</div>
-        <div class="kv"><strong>Boundary data source:</strong> OpenStreetMap administrative boundaries (OSM-derived PMTiles via split-boundaries.js + tippecanoe)</div>
-        <div class="kv"><strong>License:</strong> ODbL 1.0 - OpenStreetMap contributors</div>
+      </div>
+
+      <div class="section">
+        <div class="subhead">Boundary source</div>
+        <div class="toggle-grid">
+          <button class="toggle-btn" :class="{ on: boundaryDataSource === 'osm' }"
+                  @click="switchBoundarySource('osm')">OSM</button>
+          <button class="toggle-btn" :class="{ on: boundaryDataSource === 'gadm' }"
+                  :disabled="!currentTenant.gadmBoundarySource"
+                  @click="currentTenant.gadmBoundarySource && switchBoundarySource('gadm')">GADM</button>
+        </div>
+        <div class="kv" style="margin-top:6px; color: #9ca3af">
+          <span v-if="boundaryDataSource === 'osm'">ODbL - OpenStreetMap contributors</span>
+          <span v-else-if="gadmSourceFound">GADM 4.1 - academic/non-commercial use only</span>
+          <span v-else class="bad">Run generate-gadm-boundaries.ps1 first</span>
+        </div>
       </div>
 
       <div class="section">
@@ -162,6 +176,9 @@
 
     <div class="sidebar right">
       <div class="title">Boundary Explorer</div>
+      <div class="kv" style="margin-top: 6px; color: #9ca3af">
+        Source: <span style="color: #67e8f9">{{ boundaryDataSource === 'gadm' ? 'GADM 4.1' : 'OpenStreetMap (OSM)' }}</span>
+      </div>
 
       <div class="section">
         <div class="subhead">Loaded feature snapshot</div>
@@ -212,25 +229,31 @@
         let map = null;
 
         const tenants = [
-          { id: "1",  name: "Bridge Kenya", source: "kenya-detailed", boundarySource: "kenya-boundaries", lat: 0.0, lon: 37.9, zoom: 6 },
-          { id: "2",  name: "Bridge Uganda", source: "uganda-detailed", boundarySource: "uganda-boundaries", lat: 1.4, lon: 32.3, zoom: 6 },
-          { id: "3",  name: "Bridge Nigeria (Lagos+Osun)", source: "nigeria-lagos-osun", boundarySource: "nigeria-lagos-osun-boundaries", lat: 7.0, lon: 3.9, zoom: 8 },
-          { id: "4",  name: "Bridge Liberia", source: "liberia-detailed", boundarySource: "liberia-boundaries", lat: 6.4, lon: -9.4, zoom: 7 },
-          { id: "5",  name: "Bridge India (AP)", source: "india-andhrapradesh", boundarySource: "india-boundaries", lat: 15.9, lon: 80.0, zoom: 7 },
-          { id: "9",  name: "EdoBEST (Edo)", source: "nigeria-edo", boundarySource: "nigeria-edo-boundaries", lat: 6.6, lon: 5.9, zoom: 8 },
-          { id: "11", name: "EKOEXCEL (Lagos)", source: "nigeria-lagos", boundarySource: "nigeria-lagos-boundaries", lat: 6.5, lon: 3.4, zoom: 9 },
-          { id: "12", name: "Rwanda EQUIP", source: "rwanda-detailed", boundarySource: "rwanda-boundaries", lat: -1.9, lon: 29.9, zoom: 8 },
-          { id: "14", name: "Kwara Learn", source: "nigeria-kwara", boundarySource: "nigeria-kwara-boundaries", lat: 8.5, lon: 4.5, zoom: 8 },
-          { id: "15", name: "Manipur Education", source: "india-manipur", boundarySource: "india-boundaries", lat: 24.8, lon: 93.9, zoom: 8 },
-          { id: "16", name: "Bayelsa Prime", source: "nigeria-bayelsa", boundarySource: "nigeria-bayelsa-boundaries", lat: 4.9, lon: 6.3, zoom: 8 },
-          { id: "17", name: "Espoir CAR", source: "central-african-republic-detailed", boundarySource: "central-african-republic-boundaries", lat: 6.6, lon: 20.9, zoom: 6 },
-          { id: "18", name: "Jigawa Unite", source: "nigeria-jigawa", boundarySource: "nigeria-jigawa-boundaries", lat: 12.0, lon: 9.36, zoom: 8 },
+          { id: "1",  name: "Bridge Kenya",              source: "kenya-detailed",                    boundarySource: "kenya-boundaries",                         gadmBoundarySource: "kenya-boundaries-gadm",                    lat: 0.0,  lon: 37.9,  zoom: 6 },
+          { id: "2",  name: "Bridge Uganda",             source: "uganda-detailed",                   boundarySource: "uganda-boundaries",                        gadmBoundarySource: "uganda-boundaries-gadm",                   lat: 1.4,  lon: 32.3,  zoom: 6 },
+          { id: "3",  name: "Bridge Nigeria (Lagos+Osun)",source: "nigeria-lagos-osun",               boundarySource: "nigeria-lagos-osun-boundaries",            gadmBoundarySource: "nigeria-boundaries-gadm",                  lat: 7.0,  lon: 3.9,   zoom: 8 },
+          { id: "4",  name: "Bridge Liberia",            source: "liberia-detailed",                  boundarySource: "liberia-boundaries",                       gadmBoundarySource: "liberia-boundaries-gadm",                  lat: 6.4,  lon: -9.4,  zoom: 7 },
+          { id: "5",  name: "Bridge India (AP)",         source: "india-andhrapradesh",               boundarySource: "india-boundaries",                         gadmBoundarySource: null,                                       lat: 15.9, lon: 80.0,  zoom: 7 },
+          { id: "9",  name: "EdoBEST (Edo)",             source: "nigeria-edo",                       boundarySource: "nigeria-edo-boundaries",                   gadmBoundarySource: "nigeria-boundaries-gadm",                  lat: 6.6,  lon: 5.9,   zoom: 8 },
+          { id: "11", name: "EKOEXCEL (Lagos)",          source: "nigeria-lagos",                     boundarySource: "nigeria-lagos-boundaries",                 gadmBoundarySource: "nigeria-boundaries-gadm",                  lat: 6.5,  lon: 3.4,   zoom: 9 },
+          { id: "12", name: "Rwanda EQUIP",              source: "rwanda-detailed",                   boundarySource: "rwanda-boundaries",                        gadmBoundarySource: "rwanda-boundaries-gadm",                   lat: -1.9, lon: 29.9,  zoom: 8 },
+          { id: "14", name: "Kwara Learn",               source: "nigeria-kwara",                     boundarySource: "nigeria-kwara-boundaries",                 gadmBoundarySource: "nigeria-boundaries-gadm",                  lat: 8.5,  lon: 4.5,   zoom: 8 },
+          { id: "15", name: "Manipur Education",         source: "india-manipur",                     boundarySource: "india-boundaries",                         gadmBoundarySource: null,                                       lat: 24.8, lon: 93.9,  zoom: 8 },
+          { id: "16", name: "Bayelsa Prime",             source: "nigeria-bayelsa",                   boundarySource: "nigeria-bayelsa-boundaries",               gadmBoundarySource: "nigeria-boundaries-gadm",                  lat: 4.9,  lon: 6.3,   zoom: 8 },
+          { id: "17", name: "Espoir CAR",                source: "central-african-republic-detailed", boundarySource: "central-african-republic-boundaries",      gadmBoundarySource: "central-african-republic-boundaries-gadm", lat: 6.6,  lon: 20.9,  zoom: 6 },
+          { id: "18", name: "Jigawa Unite",              source: "nigeria-jigawa",                    boundarySource: "nigeria-jigawa-boundaries",                gadmBoundarySource: "nigeria-boundaries-gadm",                  lat: 12.0, lon: 9.36,  zoom: 8 },
         ];
+
+        const boundaryDataSource = ref('osm');
 
         const currentTenant = computed(() => tenants.find(t => t.id === selectedTenantId.value) || tenants[0]);
         const catalogCount = computed(() => Object.keys(catalogSources.value || {}).length);
         const baseSourceFound = computed(() => !!catalogSources.value[currentTenant.value.source]);
         const boundarySourceFound = computed(() => !!catalogSources.value[currentTenant.value.boundarySource]);
+        const gadmSourceFound = computed(() =>
+          !!currentTenant.value.gadmBoundarySource &&
+          !!catalogSources.value[currentTenant.value.gadmBoundarySource]
+        );
         const isZoomOutOfRange = computed(() => {
           if (baseMeta.minzoom === undefined || baseMeta.maxzoom === undefined) return false;
           return currentZoom.value < baseMeta.minzoom || currentZoom.value > baseMeta.maxzoom;
@@ -334,6 +357,24 @@
           updateControlStates();
         }
 
+        function switchBoundarySource(src) {
+          boundaryDataSource.value = src;
+          if (!map) return;
+          const sourceKey = (src === 'gadm' && currentTenant.value.gadmBoundarySource)
+            ? currentTenant.value.gadmBoundarySource
+            : currentTenant.value.boundarySource;
+          const base = serverUrl.value.replace(/\/+$/, '');
+          map.getSource('boundary').setTiles([base + '/' + sourceKey + '/{z}/{x}/{y}']);
+          if (src === 'gadm') {
+            if (map.getLayer('boundary-state-line')) map.setFilter('boundary-state-line', ['!', ['has', 'NAME_2']]);
+            if (map.getLayer('boundary-lga-line'))   map.setFilter('boundary-lga-line',   ['has', 'NAME_2']);
+          } else {
+            if (map.getLayer('boundary-state-line')) map.setFilter('boundary-state-line', ['==', ['to-number', ['coalesce', ['get', 'admin_level'], '0']], 4]);
+            if (map.getLayer('boundary-lga-line'))   map.setFilter('boundary-lga-line',   ['==', ['to-number', ['coalesce', ['get', 'admin_level'], '0']], 6]);
+          }
+          refreshBoundarySummary();
+        }
+
         function toggleControl(row) {
           if (!map) return;
           const nextVisible = !row.visible;
@@ -362,20 +403,29 @@
           const lgaNames = new Set();
           let states = 0;
           let lgas = 0;
+          const isGadm = boundaryDataSource.value === 'gadm';
           for (const f of features) {
             const props = f.properties || {};
-            const rawLevel = props.admin_level ?? props.ADMIN_LEVEL ?? "";
-            const level = Number(rawLevel);
-            const label = String(props.name || props.NAME_2 || props.NAME_1 || "");
-            if (level === 4 || props.NAME_1) {
-              states += 1;
-              if (props.NAME_1) stateNames.add(String(props.NAME_1));
-              else if (label) stateNames.add(label);
-            }
-            if (level === 6 || props.NAME_2) {
-              lgas += 1;
-              if (props.NAME_2) lgaNames.add(String(props.NAME_2));
-              else if (label) lgaNames.add(label);
+            if (isGadm) {
+              // GADM _1.json (states): NAME_1 only. _2.json (LGAs): NAME_1 + NAME_2.
+              if (props.NAME_2) {
+                lgas += 1;
+                lgaNames.add(String(props.NAME_2));
+              } else if (props.NAME_1) {
+                states += 1;
+                stateNames.add(String(props.NAME_1));
+              }
+            } else {
+              // OSM: admin_level "4" = state, "6" = LGA
+              const level = Number(props.admin_level ?? props.ADMIN_LEVEL ?? 0);
+              if (level === 4) {
+                states += 1;
+                if (props.name) stateNames.add(String(props.name));
+              }
+              if (level === 6) {
+                lgas += 1;
+                if (props.name) lgaNames.add(String(props.name));
+              }
             }
           }
           boundarySummary.states = states;
@@ -387,6 +437,7 @@
         async function reloadTenant() {
           const tenant = currentTenant.value;
           const base = serverUrl.value.replace(/\/+$/, "");
+          boundaryDataSource.value = 'osm';
           resetMeta(baseMeta);
           resetMeta(boundaryMeta);
 
@@ -437,8 +488,10 @@
           catalogCount,
           baseSourceFound,
           boundarySourceFound,
+          gadmSourceFound,
           baseMeta,
           boundaryMeta,
+          boundaryDataSource,
           baseControls,
           boundaryControls,
           boundarySummary,
@@ -446,6 +499,7 @@
           isZoomOutOfRange,
           reloadTenant,
           toggleControl,
+          switchBoundarySource,
           fmtBounds,
           describeBaseLayers,
         };
