@@ -230,8 +230,8 @@ Edit `tileserver/lua/origin-whitelist.lua`:
 
 ```lua
 local ALLOWED = {
-    ["http://localhost:5173"]      = true,   -- Vite dev server
-    ["http://localhost:3000"]      = true,   -- tile inspector
+    ["http://localhost:4000"]      = true,   -- Vite dev server (tile tools)
+    ["http://localhost:3000"]      = true,   -- tile inspector / Martin
     ["https://app.newglobe.com"]   = true,   -- production FE
 }
 ```

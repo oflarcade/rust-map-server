@@ -1,6 +1,7 @@
 local ALLOWED = {
     ["http://localhost:3000"] = true,
     ["http://localhost:5173"] = true,
+    ["http://localhost:4000"] = true,
     ["http://localhost:8000"] = true,
     ["http://localhost:8080"] = true,
     -- ["https://app.newglobe.com"]    = true,
