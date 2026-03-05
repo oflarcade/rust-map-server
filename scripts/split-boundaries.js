@@ -75,14 +75,29 @@ function getCentroid(geometry) {
   return [sumLng / count, sumLat / count];
 }
 
-// Check if a point is inside a bbox (with small padding)
-function pointInBBox(point, bbox, padding = 0.001) {
-  return (
-    point[0] >= bbox[0] - padding &&
-    point[0] <= bbox[2] + padding &&
-    point[1] >= bbox[1] - padding &&
-    point[1] <= bbox[3] + padding
-  );
+// Ray-casting point-in-polygon for a single ring
+function pointInRing(point, ring) {
+  let inside = false;
+  const [px, py] = point;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+    const intersect =
+      yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+// Test point against a GeoJSON geometry (Polygon or MultiPolygon, outer ring only)
+function pointInGeometry(point, geometry) {
+  if (geometry.type === "Polygon") {
+    return pointInRing(point, geometry.coordinates[0]);
+  }
+  if (geometry.type === "MultiPolygon") {
+    return geometry.coordinates.some((poly) => pointInRing(point, poly[0]));
+  }
+  return false;
 }
 
 for (const tenant of TENANTS) {
@@ -101,20 +116,10 @@ for (const tenant of TENANTS) {
     continue;
   }
 
-  // Compute combined bbox of all matched states
-  const bboxes = matchedStates.map((f) => getBBox(f.geometry));
-  const combinedBBox = [
-    Math.min(...bboxes.map((b) => b[0])),
-    Math.min(...bboxes.map((b) => b[1])),
-    Math.max(...bboxes.map((b) => b[2])),
-    Math.max(...bboxes.map((b) => b[3])),
-  ];
-  console.log(`  Combined bbox: [${combinedBBox.join(", ")}]`);
-
-  // Find LGAs whose centroid falls inside the combined state bbox
+  // Find LGAs whose centroid falls inside the actual state polygon(s)
   const matchedLGAs = lgaFeatures.filter((f) => {
     const centroid = getCentroid(f.geometry);
-    return pointInBBox(centroid, combinedBBox);
+    return matchedStates.some((s) => pointInGeometry(centroid, s.geometry));
   });
   console.log(`  Matched LGAs: ${matchedLGAs.length}`);
 

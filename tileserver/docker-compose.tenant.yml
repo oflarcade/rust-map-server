@@ -18,5 +18,7 @@ services:
     volumes:
       - ./nginx-tenant-proxy.conf:/etc/nginx/conf.d/default.conf:ro
       - ./lua:/etc/nginx/lua:ro
+      - ../boundaries:/data/boundaries:ro
+      - ../hdx:/data/hdx:ro
     depends_on:
       - martin

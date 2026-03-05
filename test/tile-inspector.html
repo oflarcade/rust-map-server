@@ -63,9 +63,17 @@
       color: #bae6fd;
     }
     .feature-list { max-height: 280px; overflow-y: auto; border: 1px solid #1f2937; border-radius: 6px; padding: 8px; background: #0b1220; font-size: 12px; }
-    .feature-item { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; border-bottom: 1px solid #172033; }
+    .feature-item { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; border-bottom: 1px solid #172033; cursor: pointer; }
     .feature-item:last-child { border-bottom: 0; }
-    .feature-count { color: #67e8f9; font-size: 11px; }
+    .feature-item:hover { background: #1a2744; }
+    .feature-item .name { flex: 1; }
+    .feature-item mark { background: #1e4d78; color: #bae6fd; border-radius: 2px; padding: 0 1px; }
+    .feature-count { color: #67e8f9; font-size: 11px; flex-shrink: 0; }
+    .search-wrap { position: relative; margin-bottom: 8px; }
+    .search-wrap input { padding-right: 28px; }
+    .search-clear { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: #6b7280; cursor: pointer; font-size: 14px; line-height: 1; padding: 0; }
+    .search-clear:hover { color: #e5e7eb; }
+    .search-counts { font-size: 11px; color: #6b7280; margin-bottom: 6px; }
     .zoom-badge {
       position: absolute;
       top: 10px;
@@ -115,7 +123,7 @@
 
       <div class="section">
         <div class="subhead">Boundary metadata</div>
-        <div class="kv"><strong>Active source:</strong> {{ boundaryDataSource === 'gadm' && currentTenant.gadmBoundarySource ? currentTenant.gadmBoundarySource : currentTenant.boundarySource }}</div>
+        <div class="kv"><strong>Active source:</strong> {{ boundaryDataSource === 'gadm' && currentTenant.gadmBoundarySource ? currentTenant.gadmBoundarySource : boundaryDataSource === 'hdx' && currentTenant.hdxBoundarySource ? currentTenant.hdxBoundarySource : currentTenant.boundarySource }}</div>
         <div class="kv"><strong>Zoom:</strong> {{ boundaryMeta.minzoom ?? '-' }} - {{ boundaryMeta.maxzoom ?? '-' }}</div>
         <div class="kv"><strong>Bounds:</strong> {{ fmtBounds(boundaryMeta.bounds) }}</div>
       </div>
@@ -126,14 +134,25 @@
           <button class="toggle-btn" :class="{ on: boundaryDataSource === 'osm' }"
                   @click="switchBoundarySource('osm')">OSM</button>
           <button class="toggle-btn" :class="{ on: boundaryDataSource === 'gadm' }"
-                  :disabled="!currentTenant.gadmBoundarySource"
-                  @click="currentTenant.gadmBoundarySource && switchBoundarySource('gadm')">GADM</button>
+                  :disabled="!gadmSourceFound"
+                  @click="gadmSourceFound && switchBoundarySource('gadm')">GADM</button>
+          <button class="toggle-btn" :class="{ on: boundaryDataSource === 'hdx' }"
+                  :disabled="!hdxSourceFound"
+                  @click="hdxSourceFound && switchBoundarySource('hdx')">HDX</button>
         </div>
         <div class="kv" style="margin-top:6px; color: #9ca3af">
           <span v-if="boundaryDataSource === 'osm'">ODbL - OpenStreetMap contributors</span>
-          <span v-else-if="gadmSourceFound">GADM 4.1 - academic/non-commercial use only</span>
-          <span v-else class="bad">Run generate-gadm-boundaries.ps1 first</span>
+          <span v-else-if="boundaryDataSource === 'gadm' && gadmSourceFound">GADM 4.1 - academic/non-commercial use only</span>
+          <span v-else-if="boundaryDataSource === 'gadm'">Run generate-gadm-boundaries.ps1 first</span>
+          <span v-else-if="boundaryDataSource === 'hdx' && hdxSourceFound">HDX COD-AB - CC BY-IGO</span>
+          <span v-else class="bad">Run generate-hdx-boundaries.ps1 first</span>
         </div>
+      </div>
+
+      <div class="section">
+        <button class="toggle-btn" style="width:100%" :class="{ on: boundariesOnly }" @click="toggleBoundariesOnly">
+          Boundaries only
+        </button>
       </div>
 
       <div class="section">
@@ -177,7 +196,14 @@
     <div class="sidebar right">
       <div class="title">Boundary Explorer</div>
       <div class="kv" style="margin-top: 6px; color: #9ca3af">
-        Source: <span style="color: #67e8f9">{{ boundaryDataSource === 'gadm' ? 'GADM 4.1' : 'OpenStreetMap (OSM)' }}</span>
+        Source: <span style="color: #67e8f9">{{ boundaryDataSource === 'gadm' ? 'GADM 4.1' : boundaryDataSource === 'hdx' ? 'HDX COD-AB' : 'OpenStreetMap (OSM)' }}</span>
+      </div>
+
+      <div class="section">
+        <div class="subhead">Selected LGA</div>
+        <div class="kv" style="color: #67e8f9; font-size: 13px;">
+          {{ boundarySummary.clickedLGA || 'Click an LGA to zoom in' }}
+        </div>
       </div>
 
       <div class="section">
@@ -189,24 +215,38 @@
       </div>
 
       <div class="section">
+        <div class="subhead">Search boundaries</div>
+        <div class="search-wrap">
+          <input v-model="boundarySearch" placeholder="Filter states &amp; LGAs..." />
+          <button v-if="boundarySearch" class="search-clear" @click="boundarySearch = ''">x</button>
+        </div>
+        <div v-if="boundarySearch" class="search-counts">
+          {{ filteredStateNames.length }} state{{ filteredStateNames.length !== 1 ? 's' : '' }},
+          {{ filteredLGANames.length }} LGA{{ filteredLGANames.length !== 1 ? 's' : '' }}
+        </div>
+      </div>
+
+      <div class="section">
         <div class="subhead">States in current view</div>
         <div class="feature-list">
-          <div v-for="name in boundarySummary.stateNames" :key="'s-' + name" class="feature-item">
-            <span>{{ name }}</span>
+          <div v-for="name in filteredStateNames" :key="'s-' + name" class="feature-item" @click="zoomToName(name)">
+            <span class="name" v-html="highlight(name, boundarySearch)"></span>
             <span class="feature-count">State</span>
           </div>
-          <div v-if="boundarySummary.stateNames.length === 0">No state features loaded at current view.</div>
+          <div v-if="filteredStateNames.length === 0 && boundarySummary.stateNames.length > 0" style="color:#6b7280">No match</div>
+          <div v-else-if="boundarySummary.stateNames.length === 0">No state features loaded at current view.</div>
         </div>
       </div>
 
       <div class="section">
         <div class="subhead">LGAs in current view</div>
         <div class="feature-list">
-          <div v-for="name in boundarySummary.lgaNames" :key="'l-' + name" class="feature-item">
-            <span>{{ name }}</span>
+          <div v-for="name in filteredLGANames" :key="'l-' + name" class="feature-item" @click="zoomToName(name)">
+            <span class="name" v-html="highlight(name, boundarySearch)"></span>
             <span class="feature-count">LGA</span>
           </div>
-          <div v-if="boundarySummary.lgaNames.length === 0">No LGA features loaded at current view.</div>
+          <div v-if="filteredLGANames.length === 0 && boundarySummary.lgaNames.length > 0" style="color:#6b7280">No match</div>
+          <div v-else-if="boundarySummary.lgaNames.length === 0">No LGA features loaded at current view.</div>
         </div>
       </div>
     </div>
@@ -225,26 +265,39 @@
         const baseMeta = reactive({});
         const boundaryMeta = reactive({});
         const dataControls = ref([]);
-        const boundarySummary = reactive({ states: 0, lgas: 0, stateNames: [], lgaNames: [] });
+        const boundarySummary = reactive({ states: 0, lgas: 0, stateNames: [], lgaNames: [], clickedLGA: '' });
         let map = null;
 
         const tenants = [
-          { id: "1",  name: "Bridge Kenya",              source: "kenya-detailed",                    boundarySource: "kenya-boundaries",                         gadmBoundarySource: "kenya-boundaries-gadm",                    lat: 0.0,  lon: 37.9,  zoom: 6 },
-          { id: "2",  name: "Bridge Uganda",             source: "uganda-detailed",                   boundarySource: "uganda-boundaries",                        gadmBoundarySource: "uganda-boundaries-gadm",                   lat: 1.4,  lon: 32.3,  zoom: 6 },
-          { id: "3",  name: "Bridge Nigeria (Lagos+Osun)",source: "nigeria-lagos-osun",               boundarySource: "nigeria-lagos-osun-boundaries",            gadmBoundarySource: "nigeria-boundaries-gadm",                  lat: 7.0,  lon: 3.9,   zoom: 8 },
-          { id: "4",  name: "Bridge Liberia",            source: "liberia-detailed",                  boundarySource: "liberia-boundaries",                       gadmBoundarySource: "liberia-boundaries-gadm",                  lat: 6.4,  lon: -9.4,  zoom: 7 },
-          { id: "5",  name: "Bridge India (AP)",         source: "india-andhrapradesh",               boundarySource: "india-boundaries",                         gadmBoundarySource: null,                                       lat: 15.9, lon: 80.0,  zoom: 7 },
-          { id: "9",  name: "EdoBEST (Edo)",             source: "nigeria-edo",                       boundarySource: "nigeria-edo-boundaries",                   gadmBoundarySource: "nigeria-boundaries-gadm",                  lat: 6.6,  lon: 5.9,   zoom: 8 },
-          { id: "11", name: "EKOEXCEL (Lagos)",          source: "nigeria-lagos",                     boundarySource: "nigeria-lagos-boundaries",                 gadmBoundarySource: "nigeria-boundaries-gadm",                  lat: 6.5,  lon: 3.4,   zoom: 9 },
-          { id: "12", name: "Rwanda EQUIP",              source: "rwanda-detailed",                   boundarySource: "rwanda-boundaries",                        gadmBoundarySource: "rwanda-boundaries-gadm",                   lat: -1.9, lon: 29.9,  zoom: 8 },
-          { id: "14", name: "Kwara Learn",               source: "nigeria-kwara",                     boundarySource: "nigeria-kwara-boundaries",                 gadmBoundarySource: "nigeria-boundaries-gadm",                  lat: 8.5,  lon: 4.5,   zoom: 8 },
-          { id: "15", name: "Manipur Education",         source: "india-manipur",                     boundarySource: "india-boundaries",                         gadmBoundarySource: null,                                       lat: 24.8, lon: 93.9,  zoom: 8 },
-          { id: "16", name: "Bayelsa Prime",             source: "nigeria-bayelsa",                   boundarySource: "nigeria-bayelsa-boundaries",               gadmBoundarySource: "nigeria-boundaries-gadm",                  lat: 4.9,  lon: 6.3,   zoom: 8 },
-          { id: "17", name: "Espoir CAR",                source: "central-african-republic-detailed", boundarySource: "central-african-republic-boundaries",      gadmBoundarySource: "central-african-republic-boundaries-gadm", lat: 6.6,  lon: 20.9,  zoom: 6 },
-          { id: "18", name: "Jigawa Unite",              source: "nigeria-jigawa",                    boundarySource: "nigeria-jigawa-boundaries",                gadmBoundarySource: "nigeria-boundaries-gadm",                  lat: 12.0, lon: 9.36,  zoom: 8 },
+          { id: "1",  name: "Bridge Kenya",              source: "kenya-detailed",                    boundarySource: "kenya-boundaries",                         gadmBoundarySource: "kenya-boundaries-gadm",                    hdxBoundarySource: "kenya-boundaries-hdx",                    lat: 0.0,  lon: 37.9,  zoom: 6 },
+          { id: "2",  name: "Bridge Uganda",             source: "uganda-detailed",                   boundarySource: "uganda-boundaries",                        gadmBoundarySource: "uganda-boundaries-gadm",                   hdxBoundarySource: "uganda-boundaries-hdx",                   lat: 1.4,  lon: 32.3,  zoom: 6 },
+          { id: "3",  name: "Bridge Nigeria (Lagos+Osun)",source: "nigeria-lagos-osun",               boundarySource: "nigeria-lagos-osun-boundaries",            gadmBoundarySource: "nigeria-boundaries-gadm",                  hdxBoundarySource: "nigeria-boundaries-hdx",                  lat: 7.0,  lon: 3.9,   zoom: 8 },
+          { id: "4",  name: "Bridge Liberia",            source: "liberia-detailed",                  boundarySource: "liberia-boundaries",                       gadmBoundarySource: "liberia-boundaries-gadm",                  hdxBoundarySource: "liberia-boundaries-hdx",                  lat: 6.4,  lon: -9.4,  zoom: 7 },
+          { id: "5",  name: "Bridge India (AP)",         source: "india-andhrapradesh",               boundarySource: "india-boundaries",                         gadmBoundarySource: null,                                       hdxBoundarySource: null,                                      lat: 15.9, lon: 80.0,  zoom: 7 },
+          { id: "9",  name: "EdoBEST (Edo)",             source: "nigeria-edo",                       boundarySource: "nigeria-edo-boundaries",                   gadmBoundarySource: "nigeria-boundaries-gadm",                  hdxBoundarySource: "nigeria-boundaries-hdx",                  lat: 6.6,  lon: 5.9,   zoom: 8 },
+          { id: "11", name: "EKOEXCEL (Lagos)",          source: "nigeria-lagos",                     boundarySource: "nigeria-lagos-boundaries",                 gadmBoundarySource: "nigeria-boundaries-gadm",                  hdxBoundarySource: "nigeria-boundaries-hdx",                  lat: 6.5,  lon: 3.4,   zoom: 9 },
+          { id: "12", name: "Rwanda EQUIP",              source: "rwanda-detailed",                   boundarySource: "rwanda-boundaries",                        gadmBoundarySource: "rwanda-boundaries-gadm",                   hdxBoundarySource: null,                                      lat: -1.9, lon: 29.9,  zoom: 8 },
+          { id: "14", name: "Kwara Learn",               source: "nigeria-kwara",                     boundarySource: "nigeria-kwara-boundaries",                 gadmBoundarySource: "nigeria-boundaries-gadm",                  hdxBoundarySource: "nigeria-boundaries-hdx",                  lat: 8.5,  lon: 4.5,   zoom: 8 },
+          { id: "15", name: "Manipur Education",         source: "india-manipur",                     boundarySource: "india-boundaries",                         gadmBoundarySource: null,                                       hdxBoundarySource: null,                                      lat: 24.8, lon: 93.9,  zoom: 8 },
+          { id: "16", name: "Bayelsa Prime",             source: "nigeria-bayelsa",                   boundarySource: "nigeria-bayelsa-boundaries",               gadmBoundarySource: "nigeria-boundaries-gadm",                  hdxBoundarySource: "nigeria-boundaries-hdx",                  lat: 4.9,  lon: 6.3,   zoom: 8 },
+          { id: "17", name: "Espoir CAR",                source: "central-african-republic-detailed", boundarySource: "central-african-republic-boundaries",      gadmBoundarySource: "central-african-republic-boundaries-gadm", hdxBoundarySource: "central-african-republic-boundaries-hdx", lat: 6.6,  lon: 20.9,  zoom: 6 },
+          { id: "18", name: "Jigawa Unite",              source: "nigeria-jigawa",                    boundarySource: "nigeria-jigawa-boundaries",                gadmBoundarySource: "nigeria-boundaries-gadm",                  hdxBoundarySource: "nigeria-boundaries-hdx",                  lat: 12.0, lon: 9.36,  zoom: 8 },
         ];
 
         const boundaryDataSource = ref('osm');
+        const boundariesOnly = ref(false);
+        const boundarySearch = ref('');
+
+        const BASE_LAYERS = ['base-water','base-landcover','base-landuse','base-roads','base-roads-major','base-buildings','base-place-label'];
+
+        function toggleBoundariesOnly() {
+          boundariesOnly.value = !boundariesOnly.value;
+          if (!map) return;
+          const vis = boundariesOnly.value ? 'none' : 'visible';
+          BASE_LAYERS.forEach(id => { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis); });
+          map.setPaintProperty('background', 'background-color', boundariesOnly.value ? '#ffffff' : '#f5f3ee');
+          updateControlStates();
+        }
 
         const currentTenant = computed(() => tenants.find(t => t.id === selectedTenantId.value) || tenants[0]);
         const catalogCount = computed(() => Object.keys(catalogSources.value || {}).length);
@@ -254,6 +307,43 @@
           !!currentTenant.value.gadmBoundarySource &&
           !!catalogSources.value[currentTenant.value.gadmBoundarySource]
         );
+        const hdxSourceFound = computed(() =>
+          !!currentTenant.value.hdxBoundarySource &&
+          !!catalogSources.value[currentTenant.value.hdxBoundarySource]
+        );
+        const filteredStateNames = computed(() => {
+          const q = boundarySearch.value.toLowerCase().trim();
+          if (!q) return boundarySummary.stateNames;
+          return boundarySummary.stateNames.filter(n => n.toLowerCase().includes(q));
+        });
+
+        const filteredLGANames = computed(() => {
+          const q = boundarySearch.value.toLowerCase().trim();
+          if (!q) return boundarySummary.lgaNames;
+          return boundarySummary.lgaNames.filter(n => n.toLowerCase().includes(q));
+        });
+
+        function highlight(text, query) {
+          if (!query) return text;
+          const idx = text.toLowerCase().indexOf(query.toLowerCase());
+          if (idx === -1) return text;
+          return text.slice(0, idx) + '<mark>' + text.slice(idx, idx + query.length) + '</mark>' + text.slice(idx + query.length);
+        }
+
+        function zoomToName(name) {
+          if (!map) return;
+          // querySourceFeatures searches loaded tile cache (not just visible viewport)
+          const features = map.querySourceFeatures('boundary', { sourceLayer: 'boundaries' });
+          const match = features.find(f => {
+            const p = f.properties || {};
+            return p.name === name || p.NAME_1 === name || p.NAME_2 === name || p.adm1_name === name || p.adm2_name === name;
+          });
+          if (match && match.geometry) {
+            map.fitBounds(bboxFromGeometry(match.geometry), { padding: 60, maxZoom: 14 });
+            boundarySummary.clickedLGA = name;
+          }
+        }
+
         const isZoomOutOfRange = computed(() => {
           if (baseMeta.minzoom === undefined || baseMeta.maxzoom === undefined) return false;
           return currentZoom.value < baseMeta.minzoom || currentZoom.value > baseMeta.maxzoom;
@@ -312,10 +402,11 @@
 
           const boundaryLayer = getSourceLayer(boundary, "boundaries") || (Array.isArray(boundary.vector_layers) && boundary.vector_layers[0] && boundary.vector_layers[0].id) || "";
           if (boundaryLayer) {
-            styleLayers.push({ id: "boundary-fill", type: "fill", source: "boundary", "source-layer": boundaryLayer, paint: { "fill-color": "#60a5fa", "fill-opacity": 0.10 } });
+            styleLayers.push({ id: "boundary-fill", type: "fill", source: "boundary", "source-layer": boundaryLayer, filter: ["==", ["to-number", ["coalesce", ["get", "admin_level"], "0"]], 6], paint: { "fill-color": "#60a5fa", "fill-opacity": 0.15 } });
             styleLayers.push({ id: "boundary-state-line", type: "line", source: "boundary", "source-layer": boundaryLayer, filter: ["==", ["to-number", ["coalesce", ["get", "admin_level"], "0"]], 4], paint: { "line-color": "#2563eb", "line-width": 2 } });
             styleLayers.push({ id: "boundary-lga-line", type: "line", source: "boundary", "source-layer": boundaryLayer, filter: ["==", ["to-number", ["coalesce", ["get", "admin_level"], "0"]], 6], paint: { "line-color": "#6366f1", "line-width": 1 } });
-            styleLayers.push({ id: "boundary-label", type: "symbol", source: "boundary", "source-layer": boundaryLayer, layout: { "text-field": ["coalesce", ["get", "name"], ["get", "NAME_2"], ["get", "NAME_1"]], "text-size": 10 }, paint: { "text-color": "#0f172a", "text-halo-color": "#fff", "text-halo-width": 1 } });
+            styleLayers.push({ id: "boundary-state-label", type: "symbol", source: "boundary", "source-layer": boundaryLayer, filter: ["==", ["to-number", ["coalesce", ["get", "admin_level"], "0"]], 4], layout: { "text-field": ["coalesce", ["get", "name"], ["get", "NAME_1"], ["get", "adm1_name"]], "text-size": 13, "text-max-width": 8, "text-allow-overlap": false }, paint: { "text-color": "#1e3a5f", "text-halo-color": "#fff", "text-halo-width": 1.5 } });
+            styleLayers.push({ id: "boundary-lga-label", type: "symbol", source: "boundary", "source-layer": boundaryLayer, minzoom: 8, filter: ["==", ["to-number", ["coalesce", ["get", "admin_level"], "0"]], 6], layout: { "text-field": ["coalesce", ["get", "name"], ["get", "NAME_2"], ["get", "adm2_name"]], "text-size": 10, "text-max-width": 6, "text-allow-overlap": false }, paint: { "text-color": "#0f172a", "text-halo-color": "#fff", "text-halo-width": 1 } });
           }
 
           return {
@@ -327,6 +418,33 @@
             },
             layers: styleLayers,
           };
+        }
+
+        function bboxFromGeometry(geometry) {
+          let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+          function walk(coords) {
+            if (typeof coords[0] === 'number') {
+              if (coords[0] < minLng) minLng = coords[0];
+              if (coords[1] < minLat) minLat = coords[1];
+              if (coords[0] > maxLng) maxLng = coords[0];
+              if (coords[1] > maxLat) maxLat = coords[1];
+            } else { coords.forEach(walk); }
+          }
+          walk(geometry.coordinates);
+          return [[minLng, minLat], [maxLng, maxLat]];
+        }
+
+        function initMapInteractions() {
+          map.on('mouseenter', 'boundary-fill', () => { map.getCanvas().style.cursor = 'pointer'; });
+          map.on('mouseleave', 'boundary-fill', () => { map.getCanvas().style.cursor = ''; });
+          map.on('click', 'boundary-fill', (e) => {
+            if (!e.features || !e.features.length) return;
+            const feature = e.features[0];
+            const name = feature.properties.name || feature.properties.NAME_2 || feature.properties.adm2_name || '';
+            const bounds = bboxFromGeometry(feature.geometry);
+            map.fitBounds(bounds, { padding: 60, maxZoom: 14 });
+            if (name) boundarySummary.clickedLGA = name;
+          });
         }
 
         function updateControlStates() {
@@ -349,10 +467,11 @@
             { id: "roads-major", group: "base", label: "Major roads", layers: ["base-roads-major"], visible: true },
             { id: "buildings", group: "base", label: "Buildings", layers: ["base-buildings"], visible: true },
             { id: "places", group: "base", label: "Places", layers: ["base-place-label"], visible: true },
-            { id: "boundary-fill", group: "boundary", label: "Boundary areas", layers: ["boundary-fill"], visible: true },
-            { id: "boundary-state", group: "boundary", label: "State lines", layers: ["boundary-state-line"], visible: true },
-            { id: "boundary-lga", group: "boundary", label: "LGA lines", layers: ["boundary-lga-line"], visible: true },
-            { id: "boundary-label", group: "boundary", label: "Boundary labels", layers: ["boundary-label"], visible: true },
+            { id: "boundary-fill",         group: "boundary", label: "Boundary areas", layers: ["boundary-fill"], visible: true },
+            { id: "boundary-state",        group: "boundary", label: "State lines",     layers: ["boundary-state-line"], visible: true },
+            { id: "boundary-lga",          group: "boundary", label: "LGA lines",       layers: ["boundary-lga-line"], visible: true },
+            { id: "boundary-state-label",  group: "boundary", label: "State labels",    layers: ["boundary-state-label"], visible: true },
+            { id: "boundary-lga-label",    group: "boundary", label: "LGA labels",      layers: ["boundary-lga-label"], visible: true },
           ];
           updateControlStates();
         }
@@ -360,19 +479,50 @@
         function switchBoundarySource(src) {
           boundaryDataSource.value = src;
           if (!map) return;
-          const sourceKey = (src === 'gadm' && currentTenant.value.gadmBoundarySource)
+          const sourceKey = src === 'gadm' && currentTenant.value.gadmBoundarySource
             ? currentTenant.value.gadmBoundarySource
+            : src === 'hdx' && currentTenant.value.hdxBoundarySource
+            ? currentTenant.value.hdxBoundarySource
             : currentTenant.value.boundarySource;
           const base = serverUrl.value.replace(/\/+$/, '');
-          map.getSource('boundary').setTiles([base + '/' + sourceKey + '/{z}/{x}/{y}']);
-          if (src === 'gadm') {
-            if (map.getLayer('boundary-state-line')) map.setFilter('boundary-state-line', ['!', ['has', 'NAME_2']]);
-            if (map.getLayer('boundary-lga-line'))   map.setFilter('boundary-lga-line',   ['has', 'NAME_2']);
-          } else {
-            if (map.getLayer('boundary-state-line')) map.setFilter('boundary-state-line', ['==', ['to-number', ['coalesce', ['get', 'admin_level'], '0']], 4]);
-            if (map.getLayer('boundary-lga-line'))   map.setFilter('boundary-lga-line',   ['==', ['to-number', ['coalesce', ['get', 'admin_level'], '0']], 6]);
-          }
-          refreshBoundarySummary();
+          const newTileUrl = base + '/' + sourceKey + '/{z}/{x}/{y}';
+
+          // HDX COD-AB: adm2_name / adm1_name (lowercase, confirmed from actual downloaded files)
+          // GADM: NAME_2 / NAME_1
+          // OSM: admin_level 6 (LGA) / 4 (state)
+          const OSM6 = ['==', ['to-number', ['coalesce', ['get', 'admin_level'], '0']], 6];
+          const OSM4 = ['==', ['to-number', ['coalesce', ['get', 'admin_level'], '0']], 4];
+          const f = src === 'gadm'
+            ? { fill: ['has', 'NAME_2'],     state: ['!', ['has', 'NAME_2']],     lga: ['has', 'NAME_2']     }
+            : src === 'hdx'
+            ? { fill: ['has', 'adm2_name'],  state: ['!', ['has', 'adm2_name']],  lga: ['has', 'adm2_name']  }
+            : { fill: OSM6,                  state: OSM4,                          lga: OSM6                  };
+
+          // All boundary PMTiles are generated with --layer=boundaries (tippecanoe flag).
+          // Hardcoding the source-layer avoids relying on getStyle() returning clean internal state.
+          const SL = 'boundaries';
+
+          // Preserve per-layer visibility toggles the user may have set
+          const LAYER_IDS = ['boundary-fill', 'boundary-state-line', 'boundary-lga-line', 'boundary-state-label', 'boundary-lga-label'];
+          const vis = {};
+          LAYER_IDS.forEach(id => { if (map.getLayer(id)) vis[id] = map.getLayoutProperty(id, 'visibility') || 'visible'; });
+
+          // Remove old boundary layers + source
+          LAYER_IDS.forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
+          if (map.getSource('boundary')) map.removeSource('boundary');
+
+          // Add new source
+          map.addSource('boundary', { type: 'vector', tiles: [newTileUrl], minzoom: 0, maxzoom: 14 });
+
+          // Re-add layers with explicit specs (same as buildStyle) — no dependency on getStyle()
+          map.addLayer({ id: 'boundary-fill',        type: 'fill',   source: 'boundary', 'source-layer': SL, filter: f.fill,  paint: { 'fill-color': '#60a5fa', 'fill-opacity': 0.15 } });
+          map.addLayer({ id: 'boundary-state-line',  type: 'line',   source: 'boundary', 'source-layer': SL, filter: f.state, paint: { 'line-color': '#2563eb', 'line-width': 2 } });
+          map.addLayer({ id: 'boundary-lga-line',    type: 'line',   source: 'boundary', 'source-layer': SL, filter: f.lga,   paint: { 'line-color': '#6366f1', 'line-width': 1 } });
+          map.addLayer({ id: 'boundary-state-label', type: 'symbol', source: 'boundary', 'source-layer': SL, filter: f.state, layout: { 'text-field': ['coalesce', ['get', 'name'], ['get', 'NAME_1'], ['get', 'adm1_name']], 'text-size': 13, 'text-max-width': 8, 'text-allow-overlap': false }, paint: { 'text-color': '#1e3a5f', 'text-halo-color': '#fff', 'text-halo-width': 1.5 } });
+          map.addLayer({ id: 'boundary-lga-label',   type: 'symbol', source: 'boundary', 'source-layer': SL, minzoom: 8, filter: f.lga, layout: { 'text-field': ['coalesce', ['get', 'name'], ['get', 'NAME_2'], ['get', 'adm2_name']], 'text-size': 10, 'text-max-width': 6, 'text-allow-overlap': false }, paint: { 'text-color': '#0f172a', 'text-halo-color': '#fff', 'text-halo-width': 1 } });
+
+          // Restore visibility
+          LAYER_IDS.forEach(id => { if (vis[id] === 'none' && map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none'); });
         }
 
         function toggleControl(row) {
@@ -404,6 +554,7 @@
           let states = 0;
           let lgas = 0;
           const isGadm = boundaryDataSource.value === 'gadm';
+          const isHdx  = boundaryDataSource.value === 'hdx';
           for (const f of features) {
             const props = f.properties || {};
             if (isGadm) {
@@ -414,6 +565,15 @@
               } else if (props.NAME_1) {
                 states += 1;
                 stateNames.add(String(props.NAME_1));
+              }
+            } else if (isHdx) {
+              // HDX COD-AB: adm2_name = LGA name, adm1_name = state name (LGAs also carry adm1_name).
+              if (props.adm2_name) {
+                lgas += 1;
+                lgaNames.add(String(props.adm2_name));
+              } else if (props.adm1_name) {
+                states += 1;
+                stateNames.add(String(props.adm1_name));
               }
             } else {
               // OSM: admin_level "4" = state, "6" = LGA
@@ -466,6 +626,7 @@
           map.addControl(new maplibregl.NavigationControl());
           map.on("zoom", () => { currentZoom.value = map.getZoom(); });
           map.on("moveend", refreshBoundarySummary);
+          map.once("load", initMapInteractions);
           map.on("idle", () => {
             currentZoom.value = map.getZoom();
             if (!dataControls.value.length) initControls();
@@ -489,6 +650,7 @@
           baseSourceFound,
           boundarySourceFound,
           gadmSourceFound,
+          hdxSourceFound,
           baseMeta,
           boundaryMeta,
           boundaryDataSource,
@@ -500,6 +662,13 @@
           reloadTenant,
           toggleControl,
           switchBoundarySource,
+          boundariesOnly,
+          toggleBoundariesOnly,
+          boundarySearch,
+          filteredStateNames,
+          filteredLGANames,
+          highlight,
+          zoomToName,
           fmtBounds,
           describeBaseLayers,
         };

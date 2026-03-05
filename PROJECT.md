@@ -56,14 +56,16 @@ All production tile data originates from **OpenStreetMap**.
 
 Base tiles and boundary tiles are both derived from the same `.osm.pbf` files through separate pipelines (see below).
 
-### GADM — Developer Reference Only
+### HDX COD-AB — Boundary Reference Data
 
-GADM 4.1 (Global Administrative Areas, UC Davis) is downloaded and used **exclusively in the developer tile inspector** (`test/tile-inspector.html`) as a visual comparison reference against OSM boundaries.
+HDX COD-AB (UN OCHA Common Operational Dataset for Administrative Boundaries) is the primary admin boundary source used in the tile inspector for visual comparison and as a high-quality GeoJSON endpoint.
 
-- **License:** Non-commercial/academic only
-- **Not served to any client application**
-- **Not part of the production tile stack**
-- Files live in `gadm/` and are gitignored
+- **License:** CC BY-IGO — commercial use permitted, attribution required
+- **Source:** `https://data.humdata.org/` (CKAN API)
+- **Countries covered:** Nigeria, Kenya, Uganda, Liberia, Central African Republic (Rwanda and India excluded — no COD-AB package available)
+- **Downloaded by:** `scripts/download-hdx.ps1` → stored in `hdx/`
+- **Files:** `hdx/<country>_adm1.geojson` (states/regions) + `hdx/<country>_adm2.geojson` (LGAs/districts)
+- **Served via:** `GET /boundaries/geojson?type=hdx` (merged FeatureCollection, streamed by Lua)
 
 ---
 
@@ -264,6 +266,7 @@ nginx:    openresty/openresty:alpine         # reverse proxy + Lua
 | `tileserver/martin-config.yaml` | `/config/martin-config.yaml:ro` | Martin |
 | `tileserver/nginx-tenant-proxy.conf` | `/etc/nginx/conf.d/default.conf:ro` | OpenResty |
 | `tileserver/lua/` | `/etc/nginx/lua:ro` | OpenResty |
+| `hdx/` | `/data/hdx:ro` | OpenResty (GeoJSON endpoint) |
 
 Martin auto-discovers all `.pmtiles` files under `/data/pmtiles` and `/data/boundaries` — no manual source registration. Source names match filenames without extension.
 
@@ -296,7 +299,11 @@ curl http://localhost:8080/health
 | Endpoint | Auth | Description |
 |---|---|---|
 | `GET /tiles/{z}/{x}/{y}` | `X-Tenant-ID` header | Base map vector tile |
-| `GET /boundaries/{z}/{x}/{y}` | `X-Tenant-ID` header | Admin boundary vector tile |
+| `GET /boundaries/{z}/{x}/{y}` | `X-Tenant-ID` header | Admin boundary vector tile (PMTiles, OSM-derived) |
+| `GET /boundaries/geojson` | `X-Tenant-ID` header | OSM boundary GeoJSON for tenant (streamed, gzip compressed) |
+| `GET /boundaries/geojson?type=hdx` | `X-Tenant-ID` header | HDX COD-AB GeoJSON — adm1 + adm2 merged FeatureCollection |
+| `GET /boundaries/search?q=<query>` | `X-Tenant-ID` header | Search boundary names (OSM `name`, case-insensitive partial match) |
+| `GET /boundaries/search?q=<query>&type=hdx` | `X-Tenant-ID` header | Search HDX names (`adm1_name` / `adm2_name`) |
 | `GET /health` | None | Health probe — always returns 200 |
 | `GET /catalog` | None (port 3000 only) | Martin source list |
 
@@ -305,10 +312,14 @@ curl http://localhost:8080/health
 | Code | HTTP | Meaning |
 |---|---|---|
 | `MISSING_TENANT_ID` | 400 | No `X-Tenant-ID` header |
+| `MISSING_QUERY` | 400 | `/boundaries/search` called without `?q=` |
 | `INVALID_TENANT_ID` | 400 | Tenant ID not in nginx map |
 | `ORIGIN_BLOCKED` | 403 | Request origin not in Lua whitelist |
 | `TILE_NOT_FOUND` | 404 | No tile data at this z/x/y (coordinates outside tile bounds) |
 | `NO_BOUNDARY_DATA` | 404 | No boundary source mapped for this tenant |
+| `HDX_NOT_AVAILABLE` | 404 | Tenant has no HDX COD-AB data (Rwanda, India) |
+| `GEOJSON_NOT_FOUND` | 404 | Boundary source mapped but GeoJSON file missing on disk |
+| `PARSE_ERROR` | 500 | HDX GeoJSON file could not be parsed (corrupt or unexpected format) |
 | `UPSTREAM_ERROR` | 502 | Martin is down or unreachable |
 
 ---
@@ -347,19 +358,30 @@ The `transformRequest` hook injects `X-Tenant-ID` on every tile request automati
 
 ---
 
-## OSM Boundary Feature Schema
+## Boundary Feature Schemas
 
-Properties available on boundary tile features:
+### OSM (vector tiles via `/boundaries/{z}/{x}/{y}`)
 
-| Property | OSM value | Meaning |
+| Property | Value | Meaning |
 |---|---|---|
 | `admin_level` | `"4"` | State-level boundary |
 | `admin_level` | `"6"` | LGA-level boundary |
 | `name` | string | Feature name |
 | `osm_id` | string | OSM relation ID |
-| `boundary` | `"administrative"` | Always present (filter used during extraction) |
+| `boundary` | `"administrative"` | Always present |
 
-GADM tiles (dev inspector only) use a different schema: `NAME_1` (state), `NAME_2` (LGA), `GID_1`, `GID_2` — no `admin_level` property.
+MapLibre filter to distinguish levels: `['==', ['to-number', ['get', 'admin_level']], 6]`
+
+### HDX COD-AB (GeoJSON via `/boundaries/geojson?type=hdx`)
+
+| Property | Present on | Meaning |
+|---|---|---|
+| `adm1_name` | adm1 + adm2 features | State / region name |
+| `adm1_pcode` | adm1 + adm2 features | UN p-code for state |
+| `adm2_name` | adm2 features only | LGA / district name |
+| `adm2_pcode` | adm2 features only | UN p-code for LGA |
+
+MapLibre filter to distinguish levels: `['has', 'adm2_name']` (LGA), `['!', ['has', 'adm2_name']]` (state)
 
 ---
 
@@ -376,11 +398,12 @@ boundaries/
   *.pmtiles                   ← boundary tiles (production-critical)
   *.geojson                   ← source for tippecanoe (regenerable from OSM)
 
+hdx/
+  <country>_adm1.geojson      ← HDX COD-AB state-level GeoJSON (re-downloadable)
+  <country>_adm2.geojson      ← HDX COD-AB LGA-level GeoJSON (re-downloadable)
+
 osm-data/
   *-latest.osm.pbf            ← OSM source (re-downloadable, not backed up)
-
-gadm/
-  *.json                      ← GADM reference data (re-downloadable, not backed up)
 ```
 
 ### Recovery Priority
@@ -391,6 +414,7 @@ gadm/
 | `boundaries/*.pmtiles` | Re-run boundary generation pipeline | 10–30 min |
 | `osm-data/*.osm.pbf` | Re-run `setup.ps1` | 15–60 min download |
 | `boundaries/*.geojson` | Re-run `generate-osm-boundaries.ps1` + `split-boundaries.js` | 5–10 min |
+| `hdx/*.geojson` | Re-run `download-hdx.ps1` | 2–5 min download |
 | Docker images | `docker compose pull` + `docker build` for tippecanoe | 2–5 min |
 
 **Only `.pmtiles` files warrant backup.** Everything else is re-downloadable or regeneratable from source.
@@ -419,13 +443,13 @@ rsync -av boundaries/*.pmtiles backup:/backups/boundaries/
 ```bash
 git clone <repo> && cd <repo>
 .\scripts\setup.ps1                           # Planetiler + OSM PBF downloads
-.\scripts\download-gadm.ps1                   # GADM (dev reference only)
 .\scripts\generate-all.ps1                    # Base tiles all countries
 .\scripts\generate-nigeria-tenants.ps1        # Nigeria state tiles z6–14
 .\scripts\generate-osm-boundaries.ps1         # OSM boundary GeoJSONs (non-Nigeria)
 .\scripts\generate-country-boundaries.ps1     # Boundary PMTiles (non-Nigeria)
 node scripts/split-boundaries.js              # Nigeria: split per tenant
 .\scripts\generate-nigeria-boundaries.ps1     # Nigeria: boundary PMTiles
+.\scripts\download-hdx.ps1                    # HDX COD-AB GeoJSON (all countries)
 docker compose -f tileserver/docker-compose.tenant.yml up -d
 ```
 
@@ -453,9 +477,8 @@ scripts/
   generate-osm-boundaries.ps1     Extract admin boundary GeoJSON from OSM PBF
   generate-country-boundaries.ps1 Convert boundary GeoJSON → PMTiles (non-Nigeria)
   generate-nigeria-boundaries.ps1 Convert Nigeria boundary GeoJSON → PMTiles
-  generate-gadm-boundaries.ps1    GADM → PMTiles (dev inspector only)
-  download-gadm.ps1               Download GADM data (dev reference only)
-  filter-gadm.py                  Filter GADM by state, compute bounding boxes
+  download-hdx.ps1                Download HDX COD-AB GeoJSON (all countries → hdx/)
+  generate-hdx-boundaries.ps1     Convert HDX GeoJSON → PMTiles (dev inspector comparison)
   split-boundaries.js             Split nigeria-boundaries.geojson per tenant
   run-martin.ps1                  Run Martin locally (Windows dev)
   Dockerfile.tippecanoe           Builds felt/tippecanoe Docker image
@@ -469,10 +492,9 @@ boundaries/
   nigeria-boundaries.pmtiles      Nigeria admin boundaries (OSM-derived)
   nigeria-*-boundaries.geojson    Per-tenant split GeoJSON (generated)
 
-gadm/
-  <country>_1.json                GADM admin level 1 (states)
-  <country>_2.json                GADM admin level 2 (LGAs/districts)
-  states/                         Filtered per-state data
+hdx/
+  <country>_adm1.geojson          HDX COD-AB state/region boundaries (CC BY-IGO)
+  <country>_adm2.geojson          HDX COD-AB LGA/district boundaries (CC BY-IGO)
 ```
 
 ---
@@ -488,8 +510,11 @@ gadm/
 - Origin whitelist via Lua (OpenResty)
 - State tile zoom fix — regenerated at z6–14
 - Docker Compose production stack
-- Developer tile inspector with OSM/GADM source toggle, feature explorer
-- GADM comparison layer (dev inspector only, isolated from production)
+- HDX COD-AB GeoJSON download pipeline (`download-hdx.ps1`) for 5 countries
+- GeoJSON boundary endpoint (`/boundaries/geojson`) — OSM streaming, Lua-served
+- HDX GeoJSON endpoint (`/boundaries/geojson?type=hdx`) — adm1+adm2 merged, Lua-served
+- Boundary name search endpoint (`/boundaries/search?q=`) — OSM and HDX, Lua/cjson
+- Developer tile inspector with OSM/HDX source toggle, boundary search, feature explorer
 
 ### Pending
 
