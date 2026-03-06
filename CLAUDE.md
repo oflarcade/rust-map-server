@@ -46,11 +46,13 @@ docker compose -f tileserver/docker-compose.tenant.yml logs martin  # Check Mart
 curl.exe http://localhost:8080/health                                                      # Health check
 curl.exe http://localhost:3000/catalog                                                     # Martin source catalog
 curl.exe -H "X-Tenant-ID: 18" http://localhost:8080/tiles/8/136/120                       # Tile request (Jigawa)
-curl.exe -H "X-Tenant-ID: 11" http://localhost:8080/boundaries/geojson                    # OSM boundary GeoJSON (Lagos)
-curl.exe -H "X-Tenant-ID: 11" "http://localhost:8080/boundaries/geojson?type=hdx"         # HDX boundary GeoJSON (Lagos)
-curl.exe -H "X-Tenant-ID: 11" "http://localhost:8080/boundaries/search?q=agege&type=hdx"  # Search HDX names
+curl.exe -H "X-Tenant-ID: 3" http://localhost:8080/boundaries/geojson                     # HDX boundary GeoJSON (Nigeria)
+curl.exe -H "X-Tenant-ID: 3" "http://localhost:8080/boundaries/search?q=agege&type=hdx"   # Search HDX names
+curl.exe -H "X-Tenant-ID: 3" "http://localhost:8080/region?lat=6.4541&lon=3.3947"          # Region lookup (Nigeria, heavy)
 npx serve . -p 8000  # Then open http://localhost:8000/test/test-tenant-tiles.html
 ```
+
+**Region lookup caches:** Worker-level GeoJSON cache (hdx-cache.lua) and shared result cache (region_cache). To test cold vs warm and result-cache hits: see `tileserver/docs/testing-region-cache.md`; run `.\scripts\test-region-cache.ps1` (Windows) or `./scripts/test-region-cache.sh` (Bash).
 
 No automated test suite -- testing is browser-based via HTML files in `test/`.
 

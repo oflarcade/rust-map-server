@@ -6,11 +6,9 @@
 -- Response:
 --   { found: true,  pcode, level, adm2_pcode, adm2_name, adm1_pcode, adm1_name, adm0_pcode, adm0_name }
 --   { found: false, error, code, lat, lon }
---
--- NOTE: This parses the full GeoJSON on every request (no in-process cache).
--- For high-traffic production use, consider a dedicated spatial microservice.
 
 local cjson = require("cjson.safe")
+local hdx_cache = require("hdx-cache")
 
 -- Validate inputs
 local lat_str = ngx.var.arg_lat or ""
@@ -48,6 +46,22 @@ if not prefix or prefix == "" then
     return
 end
 
+local cache_key = prefix .. ":" .. string.format("%.4f", lat) .. ":" .. string.format("%.4f", lon)
+local region_cache = ngx.shared.region_cache
+if region_cache then
+    local cached = region_cache:get(cache_key)
+    if cached then
+        local status_code, body = cached:match("^(%d+)\n(.+)$")
+        if status_code then
+            ngx.status = tonumber(status_code)
+            ngx.header["Content-Type"] = "application/json"
+            ngx.header["Cache-Control"] = "no-store"
+            ngx.say(body)
+            return
+        end
+    end
+end
+
 -- Ray-casting point-in-polygon for a single coordinate ring
 local function point_in_ring(px, py, ring)
     local inside = false
@@ -78,16 +92,8 @@ local function point_in_geometry(px, py, geometry)
     return false
 end
 
-local function read_geojson(path)
-    local f = io.open(path, "r")
-    if not f then return nil end
-    local content = f:read("*a")
-    f:close()
-    return cjson.decode(content)
-end
-
 -- Search adm2 (LGA / district level) first
-local adm2 = read_geojson("/data/hdx/" .. prefix .. "_adm2.geojson")
+local adm2 = hdx_cache.get_adm(prefix, "adm2")
 if not adm2 then
     ngx.status = 404
     ngx.header["Content-Type"] = "application/json"
@@ -101,7 +107,7 @@ ngx.header["Cache-Control"] = "no-store"
 for _, feat in ipairs(adm2.features) do
     if feat.geometry and point_in_geometry(lon, lat, feat.geometry) then
         local p = feat.properties
-        ngx.say(cjson.encode({
+        local payload = cjson.encode({
             found      = true,
             pcode      = p.adm2_pcode,
             level      = "adm2",
@@ -111,18 +117,22 @@ for _, feat in ipairs(adm2.features) do
             adm1_name  = p.adm1_name,
             adm0_pcode = p.adm0_pcode,
             adm0_name  = p.adm0_name,
-        }))
+        })
+        if region_cache then region_cache:set(cache_key, "200\n" .. payload, 3600) end
+        ngx.header["Content-Type"]  = "application/json"
+        ngx.header["Cache-Control"] = "no-store"
+        ngx.say(payload)
         return
     end
 end
 
 -- Fallback: search adm1 (state / region level)
-local adm1 = read_geojson("/data/hdx/" .. prefix .. "_adm1.geojson")
+local adm1 = hdx_cache.get_adm(prefix, "adm1")
 if adm1 then
     for _, feat in ipairs(adm1.features) do
         if feat.geometry and point_in_geometry(lon, lat, feat.geometry) then
             local p = feat.properties
-            ngx.say(cjson.encode({
+            local payload = cjson.encode({
                 found      = true,
                 pcode      = p.adm1_pcode,
                 level      = "adm1",
@@ -130,18 +140,25 @@ if adm1 then
                 adm1_name  = p.adm1_name,
                 adm0_pcode = p.adm0_pcode,
                 adm0_name  = p.adm0_name,
-            }))
+            })
+            if region_cache then region_cache:set(cache_key, "200\n" .. payload, 3600) end
+            ngx.header["Content-Type"]  = "application/json"
+            ngx.header["Cache-Control"] = "no-store"
+            ngx.say(payload)
             return
         end
     end
 end
 
 -- No match at any level
-ngx.status = 404
-ngx.say(cjson.encode({
+local payload = cjson.encode({
     found = false,
     error = "Coordinates do not fall within any known boundary for this tenant",
     code  = "REGION_NOT_FOUND",
     lat   = lat,
     lon   = lon,
-}))
+})
+if region_cache then region_cache:set(cache_key, "404\n" .. payload, 3600) end
+ngx.status = 404
+ngx.header["Content-Type"] = "application/json"
+ngx.say(payload)

@@ -2,6 +2,8 @@ services:
   martin:
     image: ghcr.io/maplibre/martin:v0.14.2
     restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
     ports:
       - "3000:3000"
     volumes:
@@ -13,6 +15,8 @@ services:
   nginx:
     image: openresty/openresty:alpine
     restart: unless-stopped
+    mem_limit: 1536m
+    cpus: 1.0
     ports:
       - "8080:8080"
     volumes:
