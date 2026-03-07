@@ -7,8 +7,8 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ../pmtiles:/data/pmtiles:ro
-      - ../boundaries:/data/boundaries:ro
+      - ../data/pmtiles:/data/pmtiles:ro
+      - ../data/boundaries:/data/boundaries:ro
       - ./martin-config.yaml:/config/martin-config.yaml:ro
     command: --config /config/martin-config.yaml
 
@@ -22,7 +22,7 @@ services:
     volumes:
       - ./nginx-tenant-proxy.conf:/etc/nginx/conf.d/default.conf:ro
       - ./lua:/etc/nginx/lua:ro
-      - ../boundaries:/data/boundaries:ro
-      - ../hdx:/data/hdx:ro
+      - ../data/boundaries:/data/boundaries:ro
+      - ../data/hdx:/data/hdx:ro
     depends_on:
       - martin
