@@ -6,9 +6,9 @@
 # Requires: osmium-tool  (brew install osmium-tool)
 #
 # Usage:
-#   ./scripts/extract-boundaries.sh --all              # All 6 countries
-#   ./scripts/extract-boundaries.sh --country nigeria  # Single country
-#   ./scripts/extract-boundaries.sh --force            # Overwrite existing
+#   ./scripts/sh/extract-boundaries.sh --all              # All 6 countries
+#   ./scripts/sh/extract-boundaries.sh --country nigeria  # Single country
+#   ./scripts/sh/extract-boundaries.sh --force            # Overwrite existing
 #
 # Output:
 #   boundaries/<country>-boundaries.geojson
@@ -20,7 +20,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BASE_DIR="$(dirname "$SCRIPT_DIR")"
+BASE_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 OSM_DATA_DIR="$BASE_DIR/osm-data"
 BOUNDARIES_DIR="$BASE_DIR/boundaries"
 TEMP_DIR="$BASE_DIR/temp/boundaries"
@@ -230,5 +230,5 @@ echo ""
 if [ -n "$FAILED" ]; then exit 1; fi
 
 echo ""
-log_info "Next: ./scripts/generate-boundaries.sh --all"
+log_info "Next: ./scripts/sh/generate-boundaries.sh --all"
 echo ""

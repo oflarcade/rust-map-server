@@ -24,7 +24,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$BaseDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$BaseDir = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path))
 $HdxDir  = Join-Path $BaseDir "hdx"
 
 New-Item -ItemType Directory -Force -Path $HdxDir | Out-Null

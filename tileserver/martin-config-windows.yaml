@@ -14,8 +14,7 @@ pmtiles:
   # Expected sources once all tiles are generated:
   #   pmtiles/<country>-detailed.pmtiles        — Full country base maps (Planetiler)
   #   pmtiles/terrain/<country>-<state>.pmtiles  — State-level tiles (Planetiler)
-  #   boundaries/<country>-boundaries.pmtiles    — GADM admin boundaries (tippecanoe)
-  #   boundaries/<country>-admin.pmtiles         — GADM admin overlay
+  #   boundaries/<country>-boundaries.pmtiles    — OSM/HDX admin boundaries (tippecanoe)
   #   boundaries/<country>-country.pmtiles       — Country outline
   paths:
     - pmtiles

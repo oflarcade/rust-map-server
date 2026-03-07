@@ -5,7 +5,7 @@
 # Generates state-level tiles for all Nigeria tenants with minzoom=6
 # so the FE can show the full state on initial load.
 #
-# Usage: ./scripts/generate-nigeria-tenants.sh [--force]
+# Usage: ./scripts/sh/generate-nigeria-tenants.sh [--force]
 #
 # Tenants:
 #   3  - Bridge Nigeria (Lagos + Osun combined)
@@ -26,7 +26,7 @@ done
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BASE_DIR="$(dirname "$SCRIPT_DIR")"
+BASE_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PLANETILER_JAR="$BASE_DIR/planetiler.jar"
 OSM_FILE="$BASE_DIR/data/osm/nigeria-latest.osm.pbf"
 OUTPUT_DIR="$BASE_DIR/pmtiles/z6"
@@ -62,19 +62,19 @@ TENANT_DEFS=(
 # Prerequisites
 if [ ! -f "$PLANETILER_JAR" ]; then
     log_error "Planetiler not found: $PLANETILER_JAR"
-    log_info "Run ./scripts/setup.sh first"
+    log_info "Run ./scripts/sh/setup.sh first"
     exit 1
 fi
 
 if [ ! -f "$OSM_FILE" ]; then
     log_error "OSM file not found: $OSM_FILE"
-    log_info "Run ./scripts/setup.sh to download Nigeria OSM data"
+    log_info "Run ./scripts/sh/setup.sh to download Nigeria OSM data"
     exit 1
 fi
 
 if [ ! -f "$HDX_ADM1" ]; then
     log_error "HDX file not found: $HDX_ADM1"
-    log_info "Run ./scripts/download-hdx.sh (or download-hdx.ps1) to fetch Nigeria HDX COD-AB data"
+    log_info "Run ./scripts/ps1/download-hdx.ps1 to fetch Nigeria HDX COD-AB data"
     exit 1
 fi
 

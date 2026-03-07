@@ -51,7 +51,7 @@ Each source is a separate PMTiles file, separately requested, independently styl
 All production tile data originates from **OpenStreetMap**.
 
 - **Format at rest:** `.osm.pbf` (Geofabrik regional extracts)
-- **Download:** `scripts/setup.ps1` pulls from `download.geofabrik.de`
+- **Download:** `scripts/ps1/setup.ps1` pulls from `download.geofabrik.de`
 - **License:** ODbL (Open Database License) — commercial use permitted, attribution required
 
 Base tiles and boundary tiles are both derived from the same `.osm.pbf` files through separate pipelines (see below).
@@ -63,7 +63,7 @@ HDX COD-AB (UN OCHA Common Operational Dataset for Administrative Boundaries) is
 - **License:** CC BY-IGO — commercial use permitted, attribution required
 - **Source:** `https://data.humdata.org/` (CKAN API)
 - **Countries covered:** Nigeria, Kenya, Uganda, Liberia, Central African Republic (Rwanda and India excluded — no COD-AB package available)
-- **Downloaded by:** `scripts/download-hdx.ps1` → stored in `hdx/`
+- **Downloaded by:** `scripts/ps1/download-hdx.ps1` → stored in `hdx/`
 - **Files:** `hdx/<country>_adm1.geojson` (states/regions) + `hdx/<country>_adm2.geojson` (LGAs/districts)
 - **Served via:** `GET /boundaries/geojson?type=hdx` (merged FeatureCollection, streamed by Lua)
 

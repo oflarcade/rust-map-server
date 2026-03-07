@@ -19,7 +19,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$BaseDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$BaseDir = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path))
 $BoundariesDir = Join-Path $BaseDir "boundaries"
 
 function Log-Info    { param($msg) Write-Host "[INFO] $(Get-Date -Format 'HH:mm:ss') $msg" -ForegroundColor Blue }

@@ -3,11 +3,11 @@
 # generate-tiles.sh - Generate base map PMTiles from OSM data using Planetiler
 #
 # Usage:
-#   ./scripts/generate-tiles.sh --all                    # All countries + Nigeria state tiles
-#   ./scripts/generate-tiles.sh --country nigeria        # Single country (full coverage)
-#   ./scripts/generate-tiles.sh --country nigeria --states  # Nigeria state tiles only
-#   ./scripts/generate-tiles.sh --states                 # All Nigeria state tiles
-#   ./scripts/generate-tiles.sh --force                  # Regenerate even if file exists
+#   ./scripts/sh/generate-tiles.sh --all                    # All countries + Nigeria state tiles
+#   ./scripts/sh/generate-tiles.sh --country nigeria        # Single country (full coverage)
+#   ./scripts/sh/generate-tiles.sh --country nigeria --states  # Nigeria state tiles only
+#   ./scripts/sh/generate-tiles.sh --states                 # All Nigeria state tiles
+#   ./scripts/sh/generate-tiles.sh --force                  # Regenerate even if file exists
 #
 # Output: pmtiles/<country>-detailed.pmtiles  (country tiles)
 #         pmtiles/nigeria-<state>.pmtiles      (state tiles, z6-14)
@@ -18,7 +18,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BASE_DIR="$(dirname "$SCRIPT_DIR")"
+BASE_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PLANETILER_JAR="$BASE_DIR/planetiler.jar"
 OSM_DATA_DIR="$BASE_DIR/osm-data"
 PMTILES_DIR="$BASE_DIR/pmtiles"
@@ -99,7 +99,7 @@ get_state_bbox() {
 
 # ---- Prereq checks ----
 if [ ! -f "$PLANETILER_JAR" ]; then
-    log_error "Planetiler not found. Run: ./scripts/setup.sh"
+    log_error "Planetiler not found. Run: ./scripts/sh/setup.sh"
     exit 1
 fi
 
@@ -121,7 +121,7 @@ generate_country() {
 
     if [ ! -f "$OSM_FILE" ]; then
         log_error "OSM file missing: $OSM_FILE"
-        log_info "Run: ./scripts/setup.sh"
+        log_info "Run: ./scripts/sh/setup.sh"
         return 1
     fi
 
@@ -180,7 +180,7 @@ generate_state() {
     OUT="$PMTILES_DIR/${STATE}.pmtiles"
 
     if [ ! -f "$OSM_FILE" ]; then
-        log_error "Nigeria OSM file missing. Run: ./scripts/setup.sh"
+        log_error "Nigeria OSM file missing. Run: ./scripts/sh/setup.sh"
         return 1
     fi
 
@@ -310,5 +310,5 @@ if [ -n "$FAILED" ]; then
 fi
 
 echo ""
-log_info "Next: ./scripts/extract-boundaries.sh --all"
+log_info "Next: ./scripts/sh/extract-boundaries.sh --all"
 echo ""

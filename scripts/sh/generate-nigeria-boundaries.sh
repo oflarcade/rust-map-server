@@ -8,9 +8,9 @@
 # Output: boundaries/nigeria-{tenant}-boundaries.pmtiles (served by Martin)
 #
 # Usage:
-#   ./scripts/generate-nigeria-boundaries.sh                  # All Nigeria tenants
-#   ./scripts/generate-nigeria-boundaries.sh --tenant edo     # Single tenant
-#   ./scripts/generate-nigeria-boundaries.sh --force          # Regenerate even if exists
+#   ./scripts/sh/generate-nigeria-boundaries.sh                  # All Nigeria tenants
+#   ./scripts/sh/generate-nigeria-boundaries.sh --tenant edo     # Single tenant
+#   ./scripts/sh/generate-nigeria-boundaries.sh --force          # Regenerate even if exists
 #
 set -euo pipefail
 
@@ -26,7 +26,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BASE_DIR="$(dirname "$SCRIPT_DIR")"
+BASE_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BOUNDARIES_DIR="$BASE_DIR/boundaries"
 
 log_info()    { echo -e "\033[34m[INFO] $(date +%H:%M:%S)\033[0m $1"; }

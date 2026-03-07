@@ -13,7 +13,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 # Configuration
-$BaseDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$BaseDir = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path))
 $PlanetilerJar = Join-Path $BaseDir "planetiler.jar"
 $OsmDataDir = Join-Path $BaseDir "osm-data"
 $PmtilesDir = Join-Path $BaseDir "pmtiles"

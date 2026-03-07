@@ -6,11 +6,10 @@
 $ErrorActionPreference = "Stop"
 
 # Configuration
-$BaseDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$BaseDir = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path))
 $PlanetilerVersion = "0.7.0"
 $PlanetilerJar = Join-Path $BaseDir "planetiler.jar"
 $OsmDataDir = Join-Path $BaseDir "osm-data"
-$GadmDir = Join-Path $BaseDir "gadm"
 $BoundariesDir = Join-Path $BaseDir "boundaries"
 $PmtilesDir = Join-Path $BaseDir "pmtiles"
 $DataSourcesDir = Join-Path $BaseDir "data\sources"
@@ -26,7 +25,7 @@ function Log-Step    { param($msg) Write-Host "[STEP] $msg" -ForegroundColor Cya
 Write-Host ""
 Write-Host "================================================================" -ForegroundColor Cyan
 Write-Host "  PMTiles Generation Pipeline - Windows Setup Script" -ForegroundColor Cyan
-Write-Host "  (OSM base maps + GADM accurate boundaries)" -ForegroundColor Cyan
+Write-Host "  (OSM base maps + HDX/OSM boundaries)" -ForegroundColor Cyan
 Write-Host "================================================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -84,7 +83,7 @@ if (Test-Path $PlanetilerJar) {
 
 # ── Step 4: Create directories ──────────────────────────────────────
 Log-Step "Step 4/5: Setting up directories..."
-foreach ($dir in @($OsmDataDir, $PmtilesDir, $GadmDir, $BoundariesDir, $DataSourcesDir, $TempDir)) {
+foreach ($dir in @($OsmDataDir, $PmtilesDir, $BoundariesDir, $DataSourcesDir, $TempDir)) {
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
 }
 Log-Success "Directories ready"

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
 # run-martin.sh - Start Martin tile server on macOS/Linux (port 3001)
-# Usage: ./scripts/run-martin.sh
+# Usage: ./scripts/sh/run-martin.sh
 #
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BASE_DIR="$(dirname "$SCRIPT_DIR")"
+BASE_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CONFIG_FILE="$BASE_DIR/tileserver/martin-config.yaml"
 PMTILES_DIR="$BASE_DIR/pmtiles"
 BOUNDARIES_DIR="$BASE_DIR/boundaries"
@@ -51,7 +51,7 @@ BOUNDARY_COUNT=$(find "$BOUNDARIES_DIR" -maxdepth 1 -name "*.pmtiles" 2>/dev/nul
 
 if [ "$DETAILED_COUNT" -eq 0 ] && [ "$BOUNDARY_COUNT" -eq 0 ]; then
     log_error "No PMTiles files found!"
-    log_info "Run ./scripts/generate-all.sh first"
+    log_info "Run ./scripts/sh/generate-all.sh first"
     exit 1
 fi
 
@@ -60,7 +60,7 @@ log_info "Boundary tiles: $BOUNDARY_COUNT files"
 
 if [ "$DETAILED_COUNT" -eq 0 ]; then
     log_warn "No detailed tiles found in pmtiles/ - only boundaries will be served"
-    log_info "Run ./scripts/generate-all.sh to generate detailed tiles"
+    log_info "Run ./scripts/sh/generate-all.sh to generate detailed tiles"
 fi
 
 echo ""

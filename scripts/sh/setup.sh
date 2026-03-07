@@ -2,7 +2,7 @@
 #
 # setup.sh - macOS/Linux Setup: Install prerequisites and download Planetiler + OSM data
 #
-# Usage: ./scripts/setup.sh
+# Usage: ./scripts/sh/setup.sh
 #
 # OSM data is downloaded into data/osm/ (e.g. data/osm/nigeria-latest.osm.pbf).
 # To download OSM only (e.g. after copying the rest): run this script; it will
@@ -12,11 +12,10 @@ set -euo pipefail
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BASE_DIR="$(dirname "$SCRIPT_DIR")"
+BASE_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PLANETILER_VERSION="0.7.0"
 PLANETILER_JAR="$BASE_DIR/planetiler.jar"
 OSM_DATA_DIR="$BASE_DIR/data/osm"
-GADM_DIR="$BASE_DIR/data/gadm"
 BOUNDARIES_DIR="$BASE_DIR/data/boundaries"
 PMTILES_DIR="$BASE_DIR/data/pmtiles"
 DATA_SOURCES_DIR="$BASE_DIR/data/sources"
@@ -32,7 +31,7 @@ log_step()    { echo -e "\033[36m[STEP]\033[0m $1"; }
 echo ""
 echo -e "\033[36m================================================================\033[0m"
 echo -e "\033[36m  PMTiles Generation Pipeline - macOS/Linux Setup Script\033[0m"
-echo -e "\033[36m  (OSM base maps + GADM accurate boundaries)\033[0m"
+echo -e "\033[36m  (OSM base maps + HDX/OSM boundaries)\033[0m"
 echo -e "\033[36m================================================================\033[0m"
 echo ""
 
@@ -86,7 +85,7 @@ fi
 
 # -- Step 4: Create directories ----------------------------------------
 log_step "Step 4/5: Setting up directories..."
-mkdir -p "$OSM_DATA_DIR" "$PMTILES_DIR" "$GADM_DIR" "$BOUNDARIES_DIR" "$DATA_SOURCES_DIR" "$TEMP_DIR"
+mkdir -p "$OSM_DATA_DIR" "$PMTILES_DIR" "$BOUNDARIES_DIR" "$DATA_SOURCES_DIR" "$TEMP_DIR"
 log_success "Directories ready"
 
 # -- Step 5: Download OSM extracts -------------------------------------
@@ -151,6 +150,6 @@ done
 
 echo ""
 log_info "Next steps:"
-log_info "  1. Generate tiles:  ./scripts/generate-all.sh"
-log_info "  2. Or single:       ./scripts/generate-single.sh nigeria"
-log_info "  3. Run Martin:      ./scripts/run-martin.sh"
+log_info "  1. Generate tiles:  ./scripts/sh/generate-all.sh"
+log_info "  2. Or single:       ./scripts/sh/generate-single.sh nigeria"
+log_info "  3. Run Martin:      ./scripts/sh/run-martin.sh"

@@ -4,7 +4,7 @@
 # Usage: .\scripts\generate-states.ps1 <profile> <country> [state1] [state2] ...
 #        .\scripts\generate-states.ps1 -List <profile> <country>
 #
-# If no states are specified, auto-discovers ALL states from GADM and generates
+# If no states are specified, auto-discovers ALL states from HDX adm1 and generates
 # tiles for each one. Use -List to see available states without generating.
 #
 # Profiles:
@@ -31,14 +31,12 @@ param(
 $ErrorActionPreference = "Stop"
 
 # Configuration
-$BaseDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$BaseDir = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path))
 $PlanetilerJar = Join-Path $BaseDir "planetiler.jar"
 $OsmDataDir = Join-Path $BaseDir "osm-data"
-$GadmDir = Join-Path $BaseDir "gadm"
 $TempDir = Join-Path $BaseDir "temp"
 $DataSourcesDir = Join-Path $BaseDir "data\sources"
-$StatesGadmDir = Join-Path $GadmDir "states"
-$FilterScript = Join-Path $BaseDir "scripts\filter-gadm.py"
+$BoundsScript = Join-Path $BaseDir "scripts\bounds-from-hdx.py"
 
 $MinZoom = 10
 $MaxZoom = 14
@@ -104,29 +102,30 @@ if (-not $MemoryMap.ContainsKey($Country)) {
 
 $Layers = $ProfileLayers[$Profile]
 $Memory = $MemoryMap[$Country]
-$GadmFile = Join-Path $GadmDir "${Country}_2.json"
+$HdxAdm1 = Join-Path $BaseDir "data\hdx\${Country}_adm1.geojson"
+$StatesBoundsDir = Join-Path $BaseDir "data\sources\${Country}-states"
 
 # Profile-specific output directories
 $OutputDir = Join-Path $BaseDir "pmtiles\$Profile"
 $BoundariesDir = Join-Path $BaseDir "boundaries\$Profile"
 
-# Verify GADM file
-if (-not (Test-Path $GadmFile)) {
-    Log-Error "GADM file not found: $GadmFile"
-    Log-Info "Run .\scripts\setup.ps1 to download GADM data"
+# Verify HDX adm1 file
+if (-not (Test-Path $HdxAdm1)) {
+    Log-Error "HDX file not found: $HdxAdm1"
+    Log-Info "Run .\scripts\download-hdx.ps1 to fetch HDX COD-AB data for $Country"
     exit 1
 }
 
-# --List mode: show available states and exit
+# --List mode: show available states and exit (from HDX adm1_name)
 if ($List) {
     Write-Host ""
-    Log-Info "Available states for ${Country}:"
+    Log-Info "Available states for ${Country} (from HDX adm1):"
     Write-Host ""
     & python -c @"
 import json
-with open(r'$GadmFile') as f:
+with open(r'$HdxAdm1') as f:
     data = json.load(f)
-states = sorted(set(f['properties']['NAME_1'] for f in data['features']))
+states = sorted(set(f['properties'].get('adm1_name') for f in data['features'] if f['properties'].get('adm1_name')))
 for s in states:
     print(f'  - {s}')
 print(f'\nTotal: {len(states)} states')
@@ -134,14 +133,14 @@ print(f'\nTotal: {len(states)} states')
     exit 0
 }
 
-# Auto-discover: if no states provided, get ALL states from GADM
+# Auto-discover: if no states provided, get ALL states from HDX adm1
 if (-not $States -or $States.Count -eq 0) {
-    Log-Info "No states specified - auto-discovering all states from GADM..."
+    Log-Info "No states specified - auto-discovering all states from HDX adm1..."
     $stateOutput = & python -c @"
 import json
-with open(r'$GadmFile') as f:
+with open(r'$HdxAdm1') as f:
     data = json.load(f)
-states = sorted(set(f['properties']['NAME_1'] for f in data['features']))
+states = sorted(set(f['properties'].get('adm1_name') for f in data['features'] if f['properties'].get('adm1_name')))
 for s in states:
     print(s)
 "@
@@ -164,7 +163,7 @@ if (-not (Test-Path $OsmFile)) {
 }
 
 # Create directories
-New-Item -ItemType Directory -Force -Path $OutputDir, $BoundariesDir, $TempDir, $DataSourcesDir, $StatesGadmDir | Out-Null
+New-Item -ItemType Directory -Force -Path $OutputDir, $BoundariesDir, $TempDir, $DataSourcesDir, $StatesBoundsDir | Out-Null
 
 # Clean up any leftover _inprogress files
 Get-ChildItem "$DataSourcesDir\*_inprogress" -ErrorAction SilentlyContinue | Remove-Item -Force
@@ -186,24 +185,24 @@ Write-Host ""
 $totalStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
 # ─────────────────────────────────────────────────────────────
-# Step 1: Filter GADM data and compute bounding boxes
+# Step 1: Compute bounds from HDX adm1
 # ─────────────────────────────────────────────────────────────
 Write-Host ""
-Log-Step "Step 1: Filtering GADM boundary data for selected states..."
+Log-Step "Step 1: Computing bounds from HDX adm1 for selected states..."
 
-& python $FilterScript $GadmFile $StatesGadmDir @States
+& python $BoundsScript $HdxAdm1 $StatesBoundsDir @States
 if ($LASTEXITCODE -ne 0) {
-    Log-Error "Failed to filter GADM data. Check state names."
+    Log-Error "Failed to compute bounds from HDX data. Check state names."
     exit 1
 }
 
-$BoundsFile = Join-Path $StatesGadmDir "bounds.json"
+$BoundsFile = Join-Path $StatesBoundsDir "bounds.json"
 if (-not (Test-Path $BoundsFile)) {
     Log-Error "Bounds file not generated"
     exit 1
 }
 
-Log-Success "GADM data filtered successfully"
+Log-Success "Bounds computed from HDX adm1"
 
 # Read state slugs from bounds.json
 $boundsData = Get-Content $BoundsFile | ConvertFrom-Json
@@ -281,11 +280,11 @@ if ($hasTippecanoe) {
 
     foreach ($slug in $StateSlugs) {
         $stateName = $boundsData.$slug.name
-        $gadmStateFile = Join-Path $StatesGadmDir "${slug}.json"
+        $stateGeojson = Join-Path $StatesBoundsDir "${slug}.json"
         $boundaryOutput = Join-Path $BoundariesDir "${Country}-${slug}-admin.pmtiles"
 
-        if (-not (Test-Path $gadmStateFile)) {
-            Log-Warn "No GADM file for $stateName, skipping boundaries"
+        if (-not (Test-Path $stateGeojson)) {
+            Log-Warn "No state GeoJSON for $stateName, skipping boundaries"
             continue
         }
 
@@ -305,7 +304,7 @@ if ($hasTippecanoe) {
             --layer=admin `
             --name="${Country}-${slug}-admin" `
             --description="Admin boundaries for ${stateName}, ${Country}" `
-            $gadmStateFile
+            $stateGeojson
 
         if ((Test-Path $boundaryOutput) -and ((Get-Item $boundaryOutput).Length -gt 0)) {
             $bSize = (Get-Item $boundaryOutput).Length / 1MB
@@ -314,10 +313,10 @@ if ($hasTippecanoe) {
     }
 
     # Combined boundary tiles
-    $combinedGadm = Join-Path $StatesGadmDir "combined.json"
+    $combinedGeojson = Join-Path $StatesBoundsDir "combined.json"
     $combinedBoundary = Join-Path $BoundariesDir "${Country}-states-admin.pmtiles"
 
-    if (Test-Path $combinedGadm) {
+    if (Test-Path $combinedGeojson) {
         Log-Info "Generating combined boundary tiles..."
 
         & tippecanoe `
@@ -334,7 +333,7 @@ if ($hasTippecanoe) {
             --layer=admin `
             --name="${Country}-states-admin" `
             --description="Admin boundaries for selected states in ${Country}" `
-            $combinedGadm
+            $combinedGeojson
 
         if ((Test-Path $combinedBoundary) -and ((Get-Item $combinedBoundary).Length -gt 0)) {
             $cSize = (Get-Item $combinedBoundary).Length / 1MB
@@ -344,7 +343,7 @@ if ($hasTippecanoe) {
 } else {
     Log-Warn "tippecanoe not found - skipping boundary tile generation"
     Log-Info "Boundary tiles require tippecanoe (not typically available on Windows)"
-    Log-Info "Generate boundaries on macOS/Linux with: ./scripts/generate-boundaries.sh"
+    Log-Info "Generate boundaries on macOS/Linux with: ./scripts/sh/generate-boundaries.sh"
 }
 
 # ─────────────────────────────────────────────────────────────

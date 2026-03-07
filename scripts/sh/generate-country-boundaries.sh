@@ -12,9 +12,9 @@
 # Requires: tippecanoe (brew install tippecanoe on macOS) or Docker
 #
 # Usage:
-#   ./scripts/generate-country-boundaries.sh
-#   ./scripts/generate-country-boundaries.sh --country kenya
-#   ./scripts/generate-country-boundaries.sh --force
+#   ./scripts/sh/generate-country-boundaries.sh
+#   ./scripts/sh/generate-country-boundaries.sh --country kenya
+#   ./scripts/sh/generate-country-boundaries.sh --force
 #
 set -euo pipefail
 
@@ -30,7 +30,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BASE_DIR="$(dirname "$SCRIPT_DIR")"
+BASE_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BOUNDARIES_DIR="$BASE_DIR/boundaries"
 TIPPECANOE_IMAGE="felt-tippecanoe:local"
 DOCKERFILE="$BASE_DIR/scripts/Dockerfile.tippecanoe"

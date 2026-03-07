@@ -24,7 +24,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$BaseDir     = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$BaseDir     = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path))
 $OsmDataDir  = Join-Path $BaseDir "osm-data"
 $BoundariesDir = Join-Path $BaseDir "boundaries"
 $GdalImage   = "ghcr.io/osgeo/gdal:ubuntu-small-latest"

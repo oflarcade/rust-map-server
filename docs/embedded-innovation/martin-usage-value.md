@@ -16,7 +16,7 @@
 - **Portability**: Runs on Docker, Windows, or bare metal; clients are open-source (MapLibre).
 
 ## Data Governance
-- **Source licensing**: OSM data is ODbL; boundary sources should be CC BY-IGO (HDX COD) or CC BY (geoBoundaries). Avoid non-commercial GADM in production. Track license per source.
+- **Source licensing**: OSM data is ODbL; boundary sources should be CC BY-IGO (HDX COD) or CC BY (geoBoundaries). Track license per source.
 - **Provenance tracking**: Record source URL, date, and license for each PMTiles build. Keep a CHANGELOG of tile artifact hashes.
 - **PII stance**: Basemap and boundaries should exclude PII; validate generation scripts don’t ingest sensitive attributes.
 - **Access controls**: Require `X-Tenant-ID`; use Nginx to reject missing/unknown IDs with `400`. For external exposure, front with auth/CDN signed URLs.

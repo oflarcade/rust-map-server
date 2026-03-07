@@ -94,7 +94,7 @@ if ($failed.Count -gt 0) {
 }
 
 # Show generated files
-$BaseDir = Split-Path -Parent $ScriptDir
+$BaseDir = Split-Path -Parent (Split-Path -Parent $ScriptDir)
 $PmtilesDir = Join-Path $BaseDir "pmtiles"
 Write-Host ""
 Log-Info "Generated PMTiles:"

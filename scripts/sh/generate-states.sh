@@ -2,8 +2,8 @@
 #
 # generate-states.sh - Generate PMTiles for states within a country on macOS/Linux
 #
-# Usage: ./scripts/generate-states.sh <profile> <country> [state1] [state2] ...
-#        ./scripts/generate-states.sh --list <profile> <country>
+# Usage: ./scripts/sh/generate-states.sh <profile> <country> [state1] [state2] ...
+#        ./scripts/sh/generate-states.sh --list <profile> <country>
 #
 # If no states are specified, auto-discovers ALL states from HDX adm1 and generates
 # tiles for each one. Use --list to see available states. Requires HDX COD-AB data.
@@ -14,9 +14,9 @@
 #   terrain  - water + landuse + landcover + buildings + places (balanced)
 #
 # Examples:
-#   ./scripts/generate-states.sh terrain nigeria                       # All states
-#   ./scripts/generate-states.sh terrain nigeria Lagos Edo Bayelsa     # Specific states
-#   ./scripts/generate-states.sh --list terrain nigeria                # List states only
+#   ./scripts/sh/generate-states.sh terrain nigeria                       # All states
+#   ./scripts/sh/generate-states.sh terrain nigeria Lagos Edo Bayelsa     # Specific states
+#   ./scripts/sh/generate-states.sh --list terrain nigeria                # List states only
 #
 set -euo pipefail
 
@@ -49,7 +49,7 @@ fi
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BASE_DIR="$(dirname "$SCRIPT_DIR")"
+BASE_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PLANETILER_JAR="$BASE_DIR/planetiler.jar"
 OSM_DATA_DIR="$BASE_DIR/data/osm"
 TEMP_DIR="$BASE_DIR/temp"
@@ -133,7 +133,7 @@ BOUNDARIES_DIR="$BASE_DIR/boundaries/$PROFILE"
 # Verify HDX adm1 file
 if [ ! -f "$HDX_ADM1" ]; then
     log_error "HDX file not found: $HDX_ADM1"
-    log_info "Run ./scripts/download-hdx.sh (or download-hdx.ps1) to fetch HDX COD-AB data for $COUNTRY"
+    log_info "Run ./scripts/ps1/download-hdx.ps1 to fetch HDX COD-AB data for $COUNTRY"
     exit 1
 fi
 
@@ -171,14 +171,14 @@ fi
 # Verify prerequisites
 if [ ! -f "$PLANETILER_JAR" ]; then
     log_error "Planetiler not found at $PLANETILER_JAR"
-    log_info "Run ./scripts/setup.sh first"
+    log_info "Run ./scripts/sh/setup.sh first"
     exit 1
 fi
 
 OSM_FILE="$OSM_DATA_DIR/${COUNTRY}-latest.osm.pbf"
 if [ ! -f "$OSM_FILE" ]; then
     log_error "OSM file not found: $OSM_FILE"
-    log_info "Run ./scripts/setup.sh to download OSM data"
+    log_info "Run ./scripts/sh/setup.sh to download OSM data"
     exit 1
 fi
 

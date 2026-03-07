@@ -9,24 +9,37 @@ Multi-tenant vector map tile server for NewGlobe Education's School Pin Map. Rep
 ## Common Commands
 
 ### Setup & Generation
+Scripts are grouped: **Bash** in `scripts/sh/`, **PowerShell** in `scripts/ps1/`.
+
+**PowerShell (Windows):**
 ```powershell
-.\scripts\setup.ps1                                         # Download Planetiler + OSM data
-.\scripts\generate-single.ps1 <country>                     # Generate tiles for one country (e.g., nigeria, kenya)
-.\scripts\generate-all.ps1                                  # All 7 countries
-.\scripts\generate-states.ps1 <profile> <country> <State>   # State-level tiles (profiles: full|minimal|terrain|terrain-roads)
-.\scripts\generate-tenants.ps1                              # All tenants (full country + state tiles)
-.\scripts\generate-tenants.ps1 -Tenant 11 -Profile full     # Single tenant with profile override
-.\scripts\generate-nigeria-tenants.ps1                      # All Nigeria state tiles from z6 (outputs to pmtiles\z6\)
-.\scripts\generate-nigeria-tenants.ps1 -Force               # Regenerate even if tiles exist
+.\scripts\ps1\setup.ps1                                         # Download Planetiler + OSM data
+.\scripts\ps1\generate-single.ps1 <country>                     # Generate tiles for one country (e.g., nigeria, kenya)
+.\scripts\ps1\generate-all.ps1                                  # All 7 countries
+.\scripts\ps1\generate-states.ps1 <profile> <country> <State>   # State-level tiles (profiles: full|minimal|terrain|terrain-roads)
+.\scripts\ps1\generate-tenants.ps1                              # All tenants (full country + state tiles)
+.\scripts\ps1\generate-tenants.ps1 -Tenant 11 -Profile full     # Single tenant with profile override
+.\scripts\ps1\generate-nigeria-tenants.ps1                      # All Nigeria state tiles from z6 (outputs to pmtiles\z6\)
+.\scripts\ps1\generate-nigeria-tenants.ps1 -Force               # Regenerate even if tiles exist
+```
+
+**Bash (macOS/Linux):**
+```bash
+./scripts/sh/setup.sh
+./scripts/sh/generate-single.sh <country>
+./scripts/sh/generate-all.sh
+./scripts/sh/generate-states.sh <profile> <country> [state1] ...
+./scripts/sh/generate-tenants.sh
+./scripts/sh/run-martin.sh
 ```
 
 ### Boundary Processing
 ```powershell
-node scripts/split-boundaries.js                            # Split nigeria-boundaries.geojson into per-tenant GeoJSON files
-.\scripts\download-hdx.ps1                                  # Download HDX COD-AB GeoJSON for all countries into hdx/
-.\scripts\download-hdx.ps1 -Country kenya                   # Download one country only
-.\scripts\generate-hdx-boundaries.ps1                       # Convert HDX GeoJSON -> PMTiles (tile inspector comparison)
-.\scripts\generate-hdx-boundaries.ps1 -Country nigeria      # One country only
+node scripts/split-boundaries.js                                 # Split nigeria-boundaries.geojson into per-tenant GeoJSON files
+.\scripts\ps1\download-hdx.ps1                                   # Download HDX COD-AB GeoJSON for all countries into hdx/
+.\scripts\ps1\download-hdx.ps1 -Country kenya                    # Download one country only
+.\scripts\ps1\generate-hdx-boundaries.ps1                         # Convert HDX GeoJSON -> PMTiles (tile inspector comparison)
+.\scripts\ps1\generate-hdx-boundaries.ps1 -Country nigeria       # One country only
 ```
 
 ### Running the Server (Docker)
@@ -38,7 +51,7 @@ docker compose -f tileserver/docker-compose.tenant.yml logs martin  # Check Mart
 
 ### Running the Server (Local Windows)
 ```powershell
-.\scripts\run-martin.ps1                   # Martin on port 3001
+.\scripts\ps1\run-martin.ps1               # Martin on port 3001
 ```
 
 ### Testing
@@ -52,7 +65,7 @@ curl.exe -H "X-Tenant-ID: 3" "http://localhost:8080/region?lat=6.4541&lon=3.3947
 npx serve . -p 8000  # Then open http://localhost:8000/test/test-tenant-tiles.html
 ```
 
-**Region lookup caches:** Worker-level GeoJSON cache (hdx-cache.lua) and shared result cache (region_cache). To test cold vs warm and result-cache hits: see `tileserver/docs/testing-region-cache.md`; run `.\scripts\test-region-cache.ps1` (Windows) or `./scripts/test-region-cache.sh` (Bash).
+**Region lookup caches:** Worker-level GeoJSON cache (hdx-cache.lua) and shared result cache (region_cache). To test cold vs warm and result-cache hits: see `tileserver/docs/testing-region-cache.md`; run `.\scripts\ps1\test-region-cache.ps1` (Windows).
 
 No automated test suite -- testing is browser-based via HTML files in `test/`.
 
@@ -122,14 +135,14 @@ A third map (`$hdx_prefix`) routes tenants to their HDX country prefix for the G
 | `tileserver/lua/serve-geojson.lua` | Serves OSM or HDX boundary GeoJSON (`?type=hdx` param) |
 | `tileserver/lua/search-boundaries.lua` | Searches boundary names by query string (OSM or HDX) |
 | `tileserver/lua/origin-whitelist.lua` | Origin whitelist security check |
-| `scripts/generate-tenants.ps1` | Unified tenant tile generator (all 13 tenants, configurable profile) |
-| `scripts/generate-nigeria-tenants.ps1` | Nigeria-specific: regenerate state tiles from z6 (outputs to pmtiles\z6\) |
-| `scripts/generate-single.ps1` | Generate country-level detailed tiles |
-| `scripts/generate-states.ps1` | Generate state-level tiles (configurable profile/zoom) |
-| `scripts/generate-lagos-osun.ps1` | Legacy: generate combined Lagos+Osun tiles (tenant 3) |
-| `scripts/generate-all.ps1` | Generate all 7 country tiles |
-| `scripts/download-hdx.ps1` | Download HDX COD-AB GeoJSON for all countries into hdx/ |
-| `scripts/generate-hdx-boundaries.ps1` | Convert HDX GeoJSON -> PMTiles (tile inspector comparison layer) |
+| `scripts/ps1/generate-tenants.ps1` | Unified tenant tile generator (all 13 tenants, configurable profile) |
+| `scripts/ps1/generate-nigeria-tenants.ps1` | Nigeria-specific: regenerate state tiles from z6 (outputs to pmtiles\z6\) |
+| `scripts/ps1/generate-single.ps1` | Generate country-level detailed tiles |
+| `scripts/ps1/generate-states.ps1` | Generate state-level tiles (configurable profile/zoom) |
+| `scripts/ps1/generate-lagos-osun.ps1` | Legacy: generate combined Lagos+Osun tiles (tenant 3) |
+| `scripts/ps1/generate-all.ps1` | Generate all 7 country tiles |
+| `scripts/ps1/download-hdx.ps1` | Download HDX COD-AB GeoJSON for all countries into hdx/ |
+| `scripts/ps1/generate-hdx-boundaries.ps1` | Convert HDX GeoJSON -> PMTiles (tile inspector comparison layer) |
 | `scripts/split-boundaries.js` | Split nigeria-boundaries.geojson into per-tenant boundary GeoJSON files |
 | `test/tile-inspector.html` | Developer tile inspector: OSM/HDX source toggle, boundary search, feature explorer |
 | `test/test-tenant-tiles.html` | Browser debug page: test all tenants, view request logs |
@@ -268,7 +281,7 @@ hdx/<country>_adm1.geojson + _adm2.geojson
 
 ## Adding a New Tenant
 
-1. Generate tiles: `.\scripts\generate-single.ps1 <country>` or `.\scripts\generate-states.ps1 <profile> <country> <state>`
+1. Generate tiles: `.\scripts\ps1\generate-single.ps1 <country>` or `.\scripts\ps1\generate-states.ps1 <profile> <country> <state>`
 2. Place .pmtiles file in `pmtiles/` (top level, NOT subdirectory)
 3. Add tenant ID -> source mapping in `tileserver/nginx-tenant-proxy.conf`
    - In `$tenant_source` map: `"<id>" "<source-name>";`
@@ -328,7 +341,7 @@ State tiles generated at z10-14 show nothing at lower zoom levels. Regenerate wi
 Ensure `.pmtiles` files are in the top-level `pmtiles/` or `boundaries/` directory. Files in subdirectories (z6/, terrain/) are NOT auto-discovered by Martin.
 
 ### `/boundaries/geojson?type=hdx` returns 404 GEOJSON_NOT_FOUND
-The `hdx/<country>_adm1.geojson` or `_adm2.geojson` files are missing. Run `.\scripts\download-hdx.ps1`.
+The `hdx/<country>_adm1.geojson` or `_adm2.geojson` files are missing. Run `.\scripts\ps1\download-hdx.ps1`.
 
 ## Prerequisites
 

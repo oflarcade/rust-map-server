@@ -28,7 +28,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$BaseDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$BaseDir = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path))
 $BoundariesDir = Join-Path $BaseDir "boundaries"
 $TippecanoeImage = "felt-tippecanoe:local"
 $Dockerfile = Join-Path $BaseDir "scripts\Dockerfile.tippecanoe"

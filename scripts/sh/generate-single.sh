@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
 # generate-single.sh - Generate PMTiles for a single country on macOS/Linux
-# Usage: ./scripts/generate-single.sh <country-name> [--force]
-# Example: ./scripts/generate-single.sh nigeria
+# Usage: ./scripts/sh/generate-single.sh <country-name> [--force]
+# Example: ./scripts/sh/generate-single.sh nigeria
 #
 set -euo pipefail
 
@@ -24,7 +24,7 @@ fi
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BASE_DIR="$(dirname "$SCRIPT_DIR")"
+BASE_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PLANETILER_JAR="$BASE_DIR/planetiler.jar"
 OSM_DATA_DIR="$BASE_DIR/data/osm"
 PMTILES_DIR="$BASE_DIR/pmtiles"
@@ -85,14 +85,14 @@ echo ""
 # Verify Planetiler exists
 if [ ! -f "$PLANETILER_JAR" ]; then
     log_error "Planetiler not found at $PLANETILER_JAR"
-    log_info "Run ./scripts/setup.sh first"
+    log_info "Run ./scripts/sh/setup.sh first"
     exit 1
 fi
 
 # Verify OSM file exists
 if [ ! -f "$OSM_FILE" ]; then
     log_error "OSM file not found: $OSM_FILE"
-    log_info "Run ./scripts/setup.sh to download OSM data"
+    log_info "Run ./scripts/sh/setup.sh to download OSM data"
     exit 1
 fi
 

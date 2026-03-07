@@ -12,7 +12,7 @@ The `/region` endpoint uses two caches:
 ## Prerequisites
 
 - Tileserver up: `docker compose -f tileserver/docker-compose.tenant.yml up`
-- HDX data present for the tenant: `hdx/<prefix>_adm1.geojson` and `hdx/<prefix>_adm2.geojson` (e.g. `hdx/nigeria_adm1.geojson`, `hdx/nigeria_adm2.geojson`). Run `scripts/download-hdx.ps1` if needed.
+- HDX data present for the tenant: `hdx/<prefix>_adm1.geojson` and `hdx/<prefix>_adm2.geojson` (e.g. `hdx/nigeria_adm1.geojson`, `hdx/nigeria_adm2.geojson`). Run `scripts/ps1/download-hdx.ps1` if needed.
 - **Always test with Nigeria (heavy GeoJSON):** use a Nigeria tenant such as **3** (nigeria-lagos-osun), **9** (nigeria-edo), **14** (nigeria-kwara), **16** (nigeria-bayelsa), or **18** (nigeria-jigawa). All use prefix `nigeria`; coords below are in Nigeria.
 
 ### If you see `HDX_NOT_AVAILABLE` in the response body
@@ -23,7 +23,7 @@ The Lua code reads `/data/hdx/<prefix>_adm1.geojson` and `_adm2.geojson` inside 
    ```powershell
    Get-ChildItem hdx\nigeria_adm*.geojson
    ```
-   You should see `nigeria_adm1.geojson` and `nigeria_adm2.geojson`. If not, run `.\scripts\download-hdx.ps1` (without `-Force` it will skip if it thinks they exist; use `-Force` to re-download).
+   You should see `nigeria_adm1.geojson` and `nigeria_adm2.geojson`. If not, run `.\scripts\ps1\download-hdx.ps1` (without `-Force` it will skip if it thinks they exist; use `-Force` to re-download).
 
 2. **Inside the container**, confirm the same path is mounted and the files are visible:
    ```bash
@@ -129,13 +129,10 @@ From repo root, with tileserver running on port 8080:
 
 **PowerShell (Windows):**
 ```powershell
-.\scripts\test-region-cache.ps1
+.\scripts\ps1\test-region-cache.ps1
 ```
 
-**Bash (e.g. Linux/Git Bash):**
-```bash
-./scripts/test-region-cache.sh
-```
+**Bash:** No dedicated .sh script; use the curl commands from section 3 above, or run the .ps1 script under Git Bash/PowerShell.
 
 Scripts call `curl` with `-w "%{time_total}\n"` (or equivalent), run the cold/warm and result-cache checks above, and print timings and pass/fail for body equality.
 

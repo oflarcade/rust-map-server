@@ -22,16 +22,15 @@ param(
 $ErrorActionPreference = "Stop"
 
 # ── Configuration ───────────────────────────────────────────
-$BaseDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$BaseDir = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path))
 $PlanetilerJar = Join-Path $BaseDir "planetiler.jar"
 $OsmFile = Join-Path $BaseDir "osm-data\nigeria-latest.osm.pbf"
 $OutputDir = Join-Path $BaseDir "pmtiles\z6"
 $DataSourcesDir = Join-Path $BaseDir "data\sources"
 $TempDir = Join-Path $BaseDir "temp"
-$GadmDir = Join-Path $BaseDir "gadm"
-$StatesGadmDir = Join-Path $GadmDir "states"
-$FilterScript = Join-Path $BaseDir "scripts\filter-gadm.py"
-$GadmFile = Join-Path $GadmDir "nigeria_2.json"
+$HdxAdm1 = Join-Path $BaseDir "data\hdx\nigeria_adm1.geojson"
+$StatesBoundsDir = Join-Path $BaseDir "data\sources\nigeria-states"
+$BoundsScript = Join-Path $BaseDir "scripts\bounds-from-hdx.py"
 
 $MinZoom = 6
 $MaxZoom = 14
@@ -46,7 +45,7 @@ function Log-Error   { param($msg) Write-Host "[ERROR] $(Get-Date -Format 'HH:mm
 function Log-Step    { param($msg) Write-Host "[STEP] $(Get-Date -Format 'HH:mm:ss') $msg" -ForegroundColor Cyan }
 
 # Nigeria tenant state definitions
-# Each entry: OutputName (Martin source name), States to include, Bounds (computed from GADM)
+# Each entry: OutputName (Martin source name), States to include, Bounds (computed from HDX adm1)
 $Tenants = @(
     @{ Id = 9;  OutputName = "nigeria-edo";        States = @("Edo") }
     @{ Id = 11; OutputName = "nigeria-lagos";       States = @("Lagos") }
@@ -69,13 +68,13 @@ if (-not (Test-Path $OsmFile)) {
     exit 1
 }
 
-if (-not (Test-Path $GadmFile)) {
-    Log-Error "GADM file not found: $GadmFile"
-    Log-Info "Run .\scripts\download-gadm.ps1 first"
+if (-not (Test-Path $HdxAdm1)) {
+    Log-Error "HDX file not found: $HdxAdm1"
+    Log-Info "Run .\scripts\download-hdx.ps1 to fetch Nigeria HDX COD-AB data"
     exit 1
 }
 
-New-Item -ItemType Directory -Force -Path $OutputDir, $DataSourcesDir, $TempDir, $StatesGadmDir | Out-Null
+New-Item -ItemType Directory -Force -Path $OutputDir, $DataSourcesDir, $TempDir, $StatesBoundsDir | Out-Null
 
 # Clean up any leftover _inprogress files
 Get-ChildItem "$DataSourcesDir\*_inprogress" -ErrorAction SilentlyContinue | Remove-Item -Force
@@ -94,8 +93,8 @@ Write-Host "  Tenants: $($Tenants.Count)" -ForegroundColor Cyan
 Write-Host "================================================================" -ForegroundColor Cyan
 Write-Host ""
 
-# ── Step 1: Filter GADM to get bounding boxes ──────────────
-Log-Step "Step 1: Computing bounding boxes from GADM..."
+# ── Step 1: Compute bounding boxes from HDX adm1 ─────────────
+Log-Step "Step 1: Computing bounding boxes from HDX adm1..."
 
 # Collect all unique states
 $allStates = @()
@@ -107,13 +106,13 @@ foreach ($t in $Tenants) {
 
 Log-Info "States needed: $($allStates -join ', ')"
 
-& python $FilterScript $GadmFile $StatesGadmDir @allStates
+& python $BoundsScript $HdxAdm1 $StatesBoundsDir @allStates
 if ($LASTEXITCODE -ne 0) {
-    Log-Error "Failed to filter GADM data"
+    Log-Error "Failed to compute bounds from HDX data"
     exit 1
 }
 
-$BoundsFile = Join-Path $StatesGadmDir "bounds.json"
+$BoundsFile = Join-Path $StatesBoundsDir "bounds.json"
 if (-not (Test-Path $BoundsFile)) {
     Log-Error "Bounds file not generated"
     exit 1

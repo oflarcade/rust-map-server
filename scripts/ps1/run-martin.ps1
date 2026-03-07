@@ -5,7 +5,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$BaseDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$BaseDir = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path))
 $ConfigFile = Join-Path $BaseDir "tileserver\martin-config-windows.yaml"
 $PmtilesDir = Join-Path $BaseDir "pmtiles"
 $BoundariesDir = Join-Path $BaseDir "boundaries"

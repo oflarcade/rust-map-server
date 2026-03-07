@@ -12,8 +12,6 @@ export interface TenantConfig {
   source: string;
   /** Default boundary tiles source key (OSM-derived boundaries). */
   boundarySource: string;
-  /** Optional GADM boundary tiles source key for this tenant. */
-  gadmBoundarySource?: string | null;
   /** Optional HDX COD-AB boundary tiles source key for this tenant. */
   hdxBoundarySource?: string | null;
 }
@@ -24,7 +22,6 @@ export const TENANTS: TenantConfig[] = [
     name: 'Bridge Kenya',
     source: 'kenya-detailed',
     boundarySource: 'kenya-boundaries',
-    gadmBoundarySource: 'kenya-boundaries-gadm',
     hdxBoundarySource: 'kenya-boundaries-hdx',
     lat: 0.0,
     lon: 37.9,
@@ -35,7 +32,6 @@ export const TENANTS: TenantConfig[] = [
     name: 'Bridge Uganda',
     source: 'uganda-detailed',
     boundarySource: 'uganda-boundaries',
-    gadmBoundarySource: 'uganda-boundaries-gadm',
     hdxBoundarySource: 'uganda-boundaries-hdx',
     lat: 1.4,
     lon: 32.3,
@@ -46,7 +42,6 @@ export const TENANTS: TenantConfig[] = [
     name: 'Bridge Nigeria (Lagos+Osun)',
     source: 'nigeria-lagos-osun',
     boundarySource: 'nigeria-lagos-osun-boundaries',
-    gadmBoundarySource: 'nigeria-boundaries-gadm',
     hdxBoundarySource: 'nigeria-boundaries-hdx',
     lat: 7.0,
     lon: 3.9,
@@ -57,7 +52,6 @@ export const TENANTS: TenantConfig[] = [
     name: 'Bridge Liberia',
     source: 'liberia-detailed',
     boundarySource: 'liberia-boundaries',
-    gadmBoundarySource: 'liberia-boundaries-gadm',
     hdxBoundarySource: 'liberia-boundaries-hdx',
     lat: 6.4,
     lon: -9.4,
@@ -68,7 +62,6 @@ export const TENANTS: TenantConfig[] = [
     name: 'Bridge India (AP)',
     source: 'india-andhrapradesh',
     boundarySource: 'india-boundaries',
-    gadmBoundarySource: null,
     hdxBoundarySource: null,
     lat: 15.9,
     lon: 80.0,
@@ -79,7 +72,6 @@ export const TENANTS: TenantConfig[] = [
     name: 'EdoBEST (Edo)',
     source: 'nigeria-edo',
     boundarySource: 'nigeria-edo-boundaries',
-    gadmBoundarySource: 'nigeria-boundaries-gadm',
     hdxBoundarySource: 'nigeria-boundaries-hdx',
     lat: 6.6,
     lon: 5.9,
@@ -90,7 +82,6 @@ export const TENANTS: TenantConfig[] = [
     name: 'EKOEXCEL (Lagos)',
     source: 'nigeria-lagos',
     boundarySource: 'nigeria-lagos-boundaries',
-    gadmBoundarySource: 'nigeria-boundaries-gadm',
     hdxBoundarySource: 'nigeria-boundaries-hdx',
     lat: 6.5,
     lon: 3.4,
@@ -101,7 +92,6 @@ export const TENANTS: TenantConfig[] = [
     name: 'Rwanda EQUIP',
     source: 'rwanda-detailed',
     boundarySource: 'rwanda-boundaries',
-    gadmBoundarySource: 'rwanda-boundaries-gadm',
     hdxBoundarySource: null,
     lat: -1.9,
     lon: 29.9,
@@ -112,7 +102,6 @@ export const TENANTS: TenantConfig[] = [
     name: 'Kwara Learn',
     source: 'nigeria-kwara',
     boundarySource: 'nigeria-kwara-boundaries',
-    gadmBoundarySource: 'nigeria-boundaries-gadm',
     hdxBoundarySource: 'nigeria-boundaries-hdx',
     lat: 8.5,
     lon: 4.5,
@@ -123,7 +112,6 @@ export const TENANTS: TenantConfig[] = [
     name: 'Manipur Education',
     source: 'india-manipur',
     boundarySource: 'india-boundaries',
-    gadmBoundarySource: null,
     hdxBoundarySource: null,
     lat: 24.8,
     lon: 93.9,
@@ -134,7 +122,6 @@ export const TENANTS: TenantConfig[] = [
     name: 'Bayelsa Prime',
     source: 'nigeria-bayelsa',
     boundarySource: 'nigeria-bayelsa-boundaries',
-    gadmBoundarySource: 'nigeria-boundaries-gadm',
     hdxBoundarySource: 'nigeria-boundaries-hdx',
     lat: 4.9,
     lon: 6.3,
@@ -145,7 +132,6 @@ export const TENANTS: TenantConfig[] = [
     name: 'Espoir CAR',
     source: 'central-african-republic-detailed',
     boundarySource: 'central-african-republic-boundaries',
-    gadmBoundarySource: 'central-african-republic-boundaries-gadm',
     hdxBoundarySource: 'central-african-republic-boundaries-hdx',
     lat: 6.6,
     lon: 20.9,
@@ -156,7 +142,6 @@ export const TENANTS: TenantConfig[] = [
     name: 'Jigawa Unite',
     source: 'nigeria-jigawa',
     boundarySource: 'nigeria-jigawa-boundaries',
-    gadmBoundarySource: 'nigeria-boundaries-gadm',
     hdxBoundarySource: 'nigeria-boundaries-hdx',
     lat: 12.0,
     lon: 9.36,

@@ -4,7 +4,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$BaseDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$BaseDir = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path))
 $PlanetilerJar = Join-Path $BaseDir "planetiler.jar"
 $OsmFile = Join-Path $BaseDir "osm-data\nigeria-latest.osm.pbf"
 $OutputFile = Join-Path $BaseDir "pmtiles\terrain\nigeria-lagos-osun.pmtiles"

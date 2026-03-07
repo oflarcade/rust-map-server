@@ -12,9 +12,9 @@
 #   - boundaries/<country>-boundaries.geojson (from extract-boundaries.sh)
 #
 # Usage:
-#   ./scripts/generate-boundaries.sh --all              # All countries
-#   ./scripts/generate-boundaries.sh --country nigeria  # Single country
-#   ./scripts/generate-boundaries.sh --force            # Overwrite existing
+#   ./scripts/sh/generate-boundaries.sh --all              # All countries
+#   ./scripts/sh/generate-boundaries.sh --country nigeria  # Single country
+#   ./scripts/sh/generate-boundaries.sh --force            # Overwrite existing
 #
 # Output:
 #   boundaries/<country>-boundaries.pmtiles      (non-Nigeria)
@@ -26,7 +26,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BASE_DIR="$(dirname "$SCRIPT_DIR")"
+BASE_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 BOUNDARIES_DIR="$BASE_DIR/boundaries"
 TIPPECANOE_IMAGE="felt-tippecanoe:local"
 DOCKERFILE="$BASE_DIR/scripts/Dockerfile.tippecanoe"
@@ -145,7 +145,7 @@ split_nigeria_boundaries() {
 
     if [ ! -f "$INPUT" ]; then
         log_error "Nigeria boundaries not found: $INPUT"
-        log_info "Run: ./scripts/extract-boundaries.sh --country nigeria"
+        log_info "Run: ./scripts/sh/extract-boundaries.sh --country nigeria"
         return 1
     fi
 
@@ -304,7 +304,7 @@ process_country() {
 
     if [ ! -f "$IN" ]; then
         log_error "GeoJSON missing: $IN"
-        log_info "Run: ./scripts/extract-boundaries.sh --country $COUNTRY"
+        log_info "Run: ./scripts/sh/extract-boundaries.sh --country $COUNTRY"
         return 1
     fi
 

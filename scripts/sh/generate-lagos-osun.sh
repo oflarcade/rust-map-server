@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
 # generate-lagos-osun.sh - Generate combined Lagos + Osun tiles for tenant 3
-# Usage: ./scripts/generate-lagos-osun.sh
+# Usage: ./scripts/sh/generate-lagos-osun.sh
 #
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BASE_DIR="$(dirname "$SCRIPT_DIR")"
+BASE_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PLANETILER_JAR="$BASE_DIR/planetiler.jar"
 OSM_FILE="$BASE_DIR/data/osm/nigeria-latest.osm.pbf"
 OUTPUT_FILE="$BASE_DIR/pmtiles/terrain/nigeria-lagos-osun.pmtiles"
@@ -21,7 +21,7 @@ fi
 
 if [ ! -f "$OSM_FILE" ]; then
     echo -e "\033[31m[ERROR]\033[0m OSM file not found: $OSM_FILE"
-    echo -e "\033[34m[INFO]\033[0m  Run: ./scripts/setup.sh (downloads to data/osm)"
+    echo -e "\033[34m[INFO]\033[0m  Run: ./scripts/sh/setup.sh (downloads to data/osm)"
     exit 1
 fi
 

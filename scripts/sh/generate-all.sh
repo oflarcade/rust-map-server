@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # generate-all.sh - Generate PMTiles for all 7 countries on macOS/Linux
-# Usage: ./scripts/generate-all.sh
+# Usage: ./scripts/sh/generate-all.sh
 #
 # Generates tiles in order from smallest to largest:
 #   1. Liberia       (~2 min,  2GB RAM)
@@ -91,12 +91,12 @@ if [ ${#FAILED[@]} -gt 0 ]; then
     echo ""
     echo -e "  \033[33mRe-run failed countries individually:\033[0m"
     for c in "${FAILED[@]}"; do
-        echo "    ./scripts/generate-single.sh $c"
+        echo "    ./scripts/sh/generate-single.sh $c"
     done
 fi
 
 # Show generated files
-BASE_DIR="$(dirname "$SCRIPT_DIR")"
+BASE_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PMTILES_DIR="$BASE_DIR/pmtiles"
 echo ""
 log_info "Generated PMTiles:"
@@ -108,4 +108,4 @@ for f in "$PMTILES_DIR"/*-detailed.pmtiles; do
 done
 
 echo ""
-log_info "Next step: ./scripts/run-martin.sh"
+log_info "Next step: ./scripts/sh/run-martin.sh"

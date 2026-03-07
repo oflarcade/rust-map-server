@@ -13,13 +13,12 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$BaseDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$BaseDir = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path))
 $PlanetilerJar = Join-Path $BaseDir "planetiler.jar"
 $OsmDataDir = Join-Path $BaseDir "osm-data"
-$GadmDir = Join-Path $BaseDir "gadm"
 $DataSourcesDir = Join-Path $BaseDir "data\sources"
 $TempDir = Join-Path $BaseDir "temp"
-$FilterScript = Join-Path $BaseDir "scripts\filter-gadm.py"
+$StatesBase = Join-Path $BaseDir "data\sources"
 
 # Profile layers
 $ProfileLayers = @{
@@ -218,9 +217,9 @@ foreach ($t in $Tenants) {
         }
 
         # Need polygon file for exact state clipping
-        $geojsonFile = Join-Path $GadmDir "states\${slugs}.json"
+        $geojsonFile = Join-Path $StatesBase "${country}-states\${slugs}.json"
         if (-not (Test-Path $geojsonFile)) {
-            Log-Error "GeoJSON file missing: $geojsonFile - generate it first (e.g., combine-gadm-states.ps1)"
+            Log-Error "GeoJSON file missing: $geojsonFile - run bounds-from-hdx.py or generate-nigeria-tenants.ps1 first"
             $failed += "Tenant $($t.Id) ($($t.Name)): missing GeoJSON file"
             continue
         }
@@ -314,9 +313,9 @@ with open(r'$polyFile', 'w') as out:
             }
 
             # Need polygon file for exact state clipping
-            $geojsonFile = Join-Path $GadmDir "states\${slug}.json"
+            $geojsonFile = Join-Path $StatesBase "${country}-states\${slug}.json"
             if (-not (Test-Path $geojsonFile)) {
-                Log-Error "GeoJSON file missing: $geojsonFile - run filter-gadm.py first"
+                Log-Error "GeoJSON file missing: $geojsonFile - run bounds-from-hdx.py or generate-nigeria-tenants.ps1 first"
                 $failed += "Tenant $($t.Id) ($($t.Name)): missing GeoJSON file"
                 continue
             }

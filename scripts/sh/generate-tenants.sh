@@ -2,9 +2,9 @@
 #
 # generate-tenants.sh - Generate tiles for all configured tenants on macOS/Linux
 #
-# Usage: ./scripts/generate-tenants.sh                    # All tenants
-#        ./scripts/generate-tenants.sh --tenant 11        # Single tenant
-#        ./scripts/generate-tenants.sh --profile terrain   # Override profile (default: full)
+# Usage: ./scripts/sh/generate-tenants.sh                    # All tenants
+#        ./scripts/sh/generate-tenants.sh --tenant 11        # Single tenant
+#        ./scripts/sh/generate-tenants.sh --profile terrain   # Override profile (default: full)
 #
 set -euo pipefail
 
@@ -21,7 +21,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BASE_DIR="$(dirname "$SCRIPT_DIR")"
+BASE_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PLANETILER_JAR="$BASE_DIR/planetiler.jar"
 OSM_DATA_DIR="$BASE_DIR/data/osm"
 DATA_SOURCES_DIR="$BASE_DIR/data/sources"

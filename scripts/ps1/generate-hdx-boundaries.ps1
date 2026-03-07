@@ -2,7 +2,7 @@
 # generate-hdx-boundaries.ps1 - Generate HDX COD-AB boundary PMTiles for comparison
 #
 # Converts HDX COD-AB ADM1 + ADM2 GeoJSON files into PMTiles using tippecanoe (Docker).
-# Output filenames use the -hdx suffix so they coexist with OSM and GADM boundary tiles
+# Output filenames use the -hdx suffix so they coexist with OSM boundary tiles
 # and can be toggled in the tile inspector.
 #
 # Targets:
@@ -32,7 +32,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$BaseDir         = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$BaseDir         = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path))
 $HdxDir          = Join-Path $BaseDir "hdx"
 $BoundariesDir   = Join-Path $BaseDir "boundaries"
 $TippecanoeImage = "felt-tippecanoe:local"
@@ -52,7 +52,7 @@ $Countries = @(
     @{ Name = "Central African Republic"; HdxPrefix = "central-african-republic"; OutFile = "central-african-republic-boundaries-hdx"; ShortName = "car"     }
     @{ Name = "Nigeria";                  HdxPrefix = "nigeria";                  OutFile = "nigeria-boundaries-hdx";                  ShortName = "nigeria" }
 )
-# Rwanda excluded: HDX package has no GeoJSON (only SHP/EMF). Use GADM for Rwanda instead.
+# Rwanda excluded: HDX package has no GeoJSON (only SHP/EMF). Use OSM boundaries for Rwanda.
 
 if ($Country -ne "") {
     $Countries = $Countries | Where-Object { $_.ShortName -eq $Country -or $_.HdxPrefix -eq $Country }

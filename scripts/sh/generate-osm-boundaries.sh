@@ -11,9 +11,9 @@
 # License: OSM data is ODbL (open source / commercial-friendly)
 #
 # Usage:
-#   ./scripts/generate-osm-boundaries.sh                    # All countries
-#   ./scripts/generate-osm-boundaries.sh --country kenya    # Single country
-#   ./scripts/generate-osm-boundaries.sh --force            # Regenerate existing
+#   ./scripts/sh/generate-osm-boundaries.sh                    # All countries
+#   ./scripts/sh/generate-osm-boundaries.sh --country kenya    # Single country
+#   ./scripts/sh/generate-osm-boundaries.sh --force            # Regenerate existing
 #
 # Countries: kenya, uganda, liberia, rwanda, car
 #
@@ -31,7 +31,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BASE_DIR="$(dirname "$SCRIPT_DIR")"
+BASE_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 OSM_DATA_DIR="$BASE_DIR/data/osm"
 BOUNDARIES_DIR="$BASE_DIR/boundaries"
 GDAL_IMAGE="osgeo/gdal"
@@ -142,4 +142,4 @@ if [ ${#FAILED[@]} -gt 0 ];    then echo -e "\033[31mFailed:    ${FAILED[*]}\033
 
 echo ""
 log_info "Next step: convert GeoJSONs to PMTiles:"
-log_info "  ./scripts/generate-country-boundaries.sh"
+log_info "  ./scripts/sh/generate-country-boundaries.sh"

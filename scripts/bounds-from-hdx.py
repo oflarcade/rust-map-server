@@ -3,7 +3,7 @@
 bounds-from-hdx.py - Extract state bounds and GeoJSON from HDX COD-AB adm1 GeoJSON.
 
 Uses adm1_name for state names. Outputs bounds.json (for Planetiler --bounds) and
-per-state GeoJSON files, compatible with the former GADM-based pipeline.
+per-state GeoJSON files (same layout as previous pipeline).
 
 Usage:
     python3 bounds-from-hdx.py <hdx_adm1.geojson> <output_dir> <state1> [state2] ...
