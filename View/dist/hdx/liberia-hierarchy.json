@@ -1,0 +1,1098 @@
+{
+  "pcode": "LR",
+  "name": "Liberia",
+  "source": "HDX COD-AB",
+  "license": "CC BY-IGO",
+  "generated": "2026-03-07",
+  "state_count": 15,
+  "lga_count": 136,
+  "states": [
+    {
+      "pcode": "LR01",
+      "name": "Bomi",
+      "area_sqkm": 1908.74811162,
+      "center_lat": 6.7297902,
+      "center_lon": -10.77624571,
+      "lgas": [
+        {
+          "pcode": "LR0101",
+          "name": "Dowein",
+          "area_sqkm": 305.23918149,
+          "center_lat": 6.56624131,
+          "center_lon": -10.95000492
+        },
+        {
+          "pcode": "LR0102",
+          "name": "Klay",
+          "area_sqkm": 608.34817702,
+          "center_lat": 6.70557823,
+          "center_lon": -10.81301113
+        },
+        {
+          "pcode": "LR0103",
+          "name": "Senjeh",
+          "area_sqkm": 534.69441875,
+          "center_lat": 6.83803508,
+          "center_lon": -10.89086219
+        },
+        {
+          "pcode": "LR0104",
+          "name": "Suehn Mecca",
+          "area_sqkm": 460.46633435,
+          "center_lat": 6.71655817,
+          "center_lon": -10.65427051
+        }
+      ]
+    },
+    {
+      "pcode": "LR02",
+      "name": "Bong",
+      "area_sqkm": 8704.85070026,
+      "center_lat": 6.91695575,
+      "center_lon": -9.79055896,
+      "lgas": [
+        {
+          "pcode": "LR0201",
+          "name": "Boinsen",
+          "area_sqkm": 270.34945175,
+          "center_lat": 6.69115309,
+          "center_lon": -9.22712012
+        },
+        {
+          "pcode": "LR0202",
+          "name": "Fuamah",
+          "area_sqkm": 936.67898146,
+          "center_lat": 6.96096308,
+          "center_lon": -10.27699171
+        },
+        {
+          "pcode": "LR0203",
+          "name": "Jorquelleh",
+          "area_sqkm": 1302.37485039,
+          "center_lat": 6.89906807,
+          "center_lon": -9.43121724
+        },
+        {
+          "pcode": "LR0204",
+          "name": "Kokoyah",
+          "area_sqkm": 263.31916637,
+          "center_lat": 6.51735234,
+          "center_lon": -9.55122088
+        },
+        {
+          "pcode": "LR0205",
+          "name": "Kpaai",
+          "area_sqkm": 670.76568542,
+          "center_lat": 6.93393239,
+          "center_lon": -9.25163441
+        },
+        {
+          "pcode": "LR0206",
+          "name": "Panta",
+          "area_sqkm": 449.08324519,
+          "center_lat": 7.21908729,
+          "center_lon": -9.17797722
+        },
+        {
+          "pcode": "LR0207",
+          "name": "Salala",
+          "area_sqkm": 886.70680665,
+          "center_lat": 6.77694998,
+          "center_lon": -9.96488699
+        },
+        {
+          "pcode": "LR0208",
+          "name": "Sanoyeah",
+          "area_sqkm": 1101.88512757,
+          "center_lat": 7.03494445,
+          "center_lon": -9.91565259
+        },
+        {
+          "pcode": "LR0209",
+          "name": "Suakoko",
+          "area_sqkm": 621.71338263,
+          "center_lat": 7.06854737,
+          "center_lon": -9.62233451
+        },
+        {
+          "pcode": "LR0210",
+          "name": "Tukpahblee",
+          "area_sqkm": 369.88163064,
+          "center_lat": 6.61859708,
+          "center_lon": -9.42730487
+        },
+        {
+          "pcode": "LR0211",
+          "name": "Yeallequelleh",
+          "area_sqkm": 983.9449001,
+          "center_lat": 6.81715667,
+          "center_lon": -9.66767235
+        },
+        {
+          "pcode": "LR0212",
+          "name": "Zota",
+          "area_sqkm": 848.14747209,
+          "center_lat": 7.27117119,
+          "center_lon": -9.45082753
+        }
+      ]
+    },
+    {
+      "pcode": "LR03",
+      "name": "Gbarpolu",
+      "area_sqkm": 9839.2062422,
+      "center_lat": 7.429026,
+      "center_lon": -10.21655629,
+      "lgas": [
+        {
+          "pcode": "LR0301",
+          "name": "Belleh",
+          "area_sqkm": 2381.57052515,
+          "center_lat": 7.52989939,
+          "center_lon": -9.95767394
+        },
+        {
+          "pcode": "LR0302",
+          "name": "Bokomu",
+          "area_sqkm": 590.44742506,
+          "center_lat": 7.2272221,
+          "center_lon": -10.19214819
+        },
+        {
+          "pcode": "LR0303",
+          "name": "Bopolu",
+          "area_sqkm": 2297.59144813,
+          "center_lat": 7.21129458,
+          "center_lon": -10.4353825
+        },
+        {
+          "pcode": "LR0304",
+          "name": "Gbarma",
+          "area_sqkm": 839.34902074,
+          "center_lat": 7.19565638,
+          "center_lon": -10.62999433
+        },
+        {
+          "pcode": "LR0305",
+          "name": "Gounwolaila",
+          "area_sqkm": 719.89387041,
+          "center_lat": 7.20621123,
+          "center_lon": -9.96388518
+        },
+        {
+          "pcode": "LR0306",
+          "name": "Kongba",
+          "area_sqkm": 3010.35395269,
+          "center_lat": 7.6739013,
+          "center_lon": -10.4772479
+        }
+      ]
+    },
+    {
+      "pcode": "LR04",
+      "name": "Grand Bassa",
+      "area_sqkm": 7848.77383655,
+      "center_lat": 6.15716809,
+      "center_lon": -9.91818691,
+      "lgas": [
+        {
+          "pcode": "LR0401",
+          "name": "Commonwealth 2",
+          "area_sqkm": 20.04158352,
+          "center_lat": 5.87881517,
+          "center_lon": -10.04085577
+        },
+        {
+          "pcode": "LR0402",
+          "name": "District #1",
+          "area_sqkm": 1167.377287,
+          "center_lat": 6.23702657,
+          "center_lon": -10.14583273
+        },
+        {
+          "pcode": "LR0403",
+          "name": "District #2",
+          "area_sqkm": 1876.40067667,
+          "center_lat": 6.41796946,
+          "center_lon": -9.86294548
+        },
+        {
+          "pcode": "LR0404",
+          "name": "District #3",
+          "area_sqkm": 2279.16201771,
+          "center_lat": 6.31816467,
+          "center_lon": -9.59255236
+        },
+        {
+          "pcode": "LR0405",
+          "name": "District #4",
+          "area_sqkm": 1253.6068366,
+          "center_lat": 5.90284266,
+          "center_lon": -9.73436806
+        },
+        {
+          "pcode": "LR0406",
+          "name": "Neekreen",
+          "area_sqkm": 524.41403583,
+          "center_lat": 5.92841576,
+          "center_lon": -9.9421754
+        },
+        {
+          "pcode": "LR0407",
+          "name": "Owensgrove",
+          "area_sqkm": 293.17168435,
+          "center_lat": 6.19426095,
+          "center_lon": -10.27304686
+        },
+        {
+          "pcode": "LR0408",
+          "name": "St. John River City",
+          "area_sqkm": 434.59971487,
+          "center_lat": 6.03959742,
+          "center_lon": -10.03033899
+        }
+      ]
+    },
+    {
+      "pcode": "LR05",
+      "name": "Grand Cape Mount",
+      "area_sqkm": 4724.73887776,
+      "center_lat": 7.05330458,
+      "center_lon": -11.13177554,
+      "lgas": [
+        {
+          "pcode": "LR0501",
+          "name": "Commonwealth",
+          "area_sqkm": 200.57349487,
+          "center_lat": 6.80494452,
+          "center_lon": -11.28215521
+        },
+        {
+          "pcode": "LR0502",
+          "name": "Garwula",
+          "area_sqkm": 812.48697729,
+          "center_lat": 6.77441051,
+          "center_lon": -11.10159629
+        },
+        {
+          "pcode": "LR0503",
+          "name": "Golakonneh",
+          "area_sqkm": 1798.19788397,
+          "center_lat": 7.10634604,
+          "center_lon": -10.98813368
+        },
+        {
+          "pcode": "LR0504",
+          "name": "Porkpa",
+          "area_sqkm": 1277.87749404,
+          "center_lat": 7.30522244,
+          "center_lon": -11.0419232
+        },
+        {
+          "pcode": "LR0505",
+          "name": "Tewor",
+          "area_sqkm": 635.60302759,
+          "center_lat": 6.94240366,
+          "center_lon": -11.35121637
+        }
+      ]
+    },
+    {
+      "pcode": "LR06",
+      "name": "Grand Gedeh",
+      "area_sqkm": 10734.17687914,
+      "center_lat": 5.9972399,
+      "center_lon": -8.36477755,
+      "lgas": [
+        {
+          "pcode": "LR0601",
+          "name": "B'hai",
+          "area_sqkm": 627.39866847,
+          "center_lat": 6.35276719,
+          "center_lon": -8.52675084
+        },
+        {
+          "pcode": "LR0602",
+          "name": "Cavala",
+          "area_sqkm": 1279.49761263,
+          "center_lat": 6.01058492,
+          "center_lon": -8.26778051
+        },
+        {
+          "pcode": "LR0603",
+          "name": "Gbao",
+          "area_sqkm": 1759.63184077,
+          "center_lat": 6.06849689,
+          "center_lon": -8.49570854
+        },
+        {
+          "pcode": "LR0604",
+          "name": "Gboe-Ploe",
+          "area_sqkm": 1650.0478397,
+          "center_lat": 6.0211776,
+          "center_lon": -8.79713759
+        },
+        {
+          "pcode": "LR0605",
+          "name": "Glio-Twarbo",
+          "area_sqkm": 1376.6295939,
+          "center_lat": 5.71038346,
+          "center_lon": -7.60406338
+        },
+        {
+          "pcode": "LR0606",
+          "name": "Konobo",
+          "area_sqkm": 1614.63949431,
+          "center_lat": 5.83161617,
+          "center_lon": -7.85974067
+        },
+        {
+          "pcode": "LR0607",
+          "name": "Putu",
+          "area_sqkm": 1091.2021819,
+          "center_lat": 5.68570554,
+          "center_lon": -8.20983088
+        },
+        {
+          "pcode": "LR0608",
+          "name": "Tchien",
+          "area_sqkm": 1335.12964745,
+          "center_lat": 6.01228417,
+          "center_lon": -8.10353956
+        }
+      ]
+    },
+    {
+      "pcode": "LR07",
+      "name": "Grand Kru",
+      "area_sqkm": 3852.28089226,
+      "center_lat": 4.80968028,
+      "center_lon": -8.35881316,
+      "lgas": [
+        {
+          "pcode": "LR0701",
+          "name": "Barclayville",
+          "area_sqkm": 539.4142506,
+          "center_lat": 4.71311884,
+          "center_lon": -8.20117143
+        },
+        {
+          "pcode": "LR0702",
+          "name": "Bleebo",
+          "area_sqkm": 112.01209783,
+          "center_lat": 4.74493726,
+          "center_lon": -7.95382095
+        },
+        {
+          "pcode": "LR0703",
+          "name": "Bolloh",
+          "area_sqkm": 127.03994453,
+          "center_lat": 4.96017245,
+          "center_lon": -8.41261263
+        },
+        {
+          "pcode": "LR0704",
+          "name": "Buah",
+          "area_sqkm": 279.30400761,
+          "center_lat": 4.85944564,
+          "center_lon": -8.17312245
+        },
+        {
+          "pcode": "LR0705",
+          "name": "Dorbor",
+          "area_sqkm": 237.86786125,
+          "center_lat": 4.99121818,
+          "center_lon": -8.27046996
+        },
+        {
+          "pcode": "LR0706",
+          "name": "Dweh",
+          "area_sqkm": 84.02568804,
+          "center_lat": 5.07327159,
+          "center_lon": -8.06451597
+        },
+        {
+          "pcode": "LR0707",
+          "name": "Felo-Jekwi",
+          "area_sqkm": 160.57974722,
+          "center_lat": 4.72685193,
+          "center_lon": -8.36541201
+        },
+        {
+          "pcode": "LR0708",
+          "name": "Fenetoe",
+          "area_sqkm": 41.28126999,
+          "center_lat": 4.90922044,
+          "center_lon": -8.36616824
+        },
+        {
+          "pcode": "LR0709",
+          "name": "Forpoh",
+          "area_sqkm": 77.90186803,
+          "center_lat": 5.10882148,
+          "center_lon": -8.2363382
+        },
+        {
+          "pcode": "LR0710",
+          "name": "Garraway",
+          "area_sqkm": 336.43972384,
+          "center_lat": 4.55105694,
+          "center_lon": -7.91499665
+        },
+        {
+          "pcode": "LR0711",
+          "name": "Gee",
+          "area_sqkm": 70.16378825,
+          "center_lat": 4.93606012,
+          "center_lon": -8.15807615
+        },
+        {
+          "pcode": "LR0712",
+          "name": "Grand Cess Wedabo",
+          "area_sqkm": 419.60976775,
+          "center_lat": 4.63408572,
+          "center_lon": -8.07960449
+        },
+        {
+          "pcode": "LR0713",
+          "name": "Kpi",
+          "area_sqkm": 182.72218417,
+          "center_lat": 4.9657714,
+          "center_lon": -8.0859564
+        },
+        {
+          "pcode": "LR0714",
+          "name": "Lower Jloh",
+          "area_sqkm": 356.76715922,
+          "center_lat": 4.87428402,
+          "center_lon": -8.56344537
+        },
+        {
+          "pcode": "LR0715",
+          "name": "Nrokwia-Wesldow",
+          "area_sqkm": 232.78178997,
+          "center_lat": 4.82058718,
+          "center_lon": -8.32721125
+        },
+        {
+          "pcode": "LR0716",
+          "name": "Trenbo",
+          "area_sqkm": 245.45033149,
+          "center_lat": 4.70446841,
+          "center_lon": -7.87467871
+        },
+        {
+          "pcode": "LR0717",
+          "name": "Upper Jloh",
+          "area_sqkm": 258.52939662,
+          "center_lat": 4.82804428,
+          "center_lon": -8.45831372
+        },
+        {
+          "pcode": "LR0718",
+          "name": "Wlogba",
+          "area_sqkm": 90.39001585,
+          "center_lat": 5.08589653,
+          "center_lon": -8.17166381
+        }
+      ]
+    },
+    {
+      "pcode": "LR08",
+      "name": "Lofa",
+      "area_sqkm": 9872.54666333,
+      "center_lat": 7.86521791,
+      "center_lon": -9.8684178,
+      "lgas": [
+        {
+          "pcode": "LR0801",
+          "name": "Foya",
+          "area_sqkm": 615.43509457,
+          "center_lat": 8.34060305,
+          "center_lon": -10.22898586
+        },
+        {
+          "pcode": "LR0802",
+          "name": "Kolahun",
+          "area_sqkm": 2239.16878713,
+          "center_lat": 8.11119427,
+          "center_lon": -10.2307164
+        },
+        {
+          "pcode": "LR0803",
+          "name": "Quardu Boundi",
+          "area_sqkm": 335.08455883,
+          "center_lat": 8.37622054,
+          "center_lon": -9.61364318
+        },
+        {
+          "pcode": "LR0804",
+          "name": "Salayea",
+          "area_sqkm": 1257.2686405,
+          "center_lat": 7.47127117,
+          "center_lon": -9.5592161
+        },
+        {
+          "pcode": "LR0805",
+          "name": "Vahun",
+          "area_sqkm": 386.39819929,
+          "center_lat": 8.03882147,
+          "center_lon": -10.49256542
+        },
+        {
+          "pcode": "LR0806",
+          "name": "Voinjama",
+          "area_sqkm": 1911.88595603,
+          "center_lat": 8.24514064,
+          "center_lon": -9.80902803
+        },
+        {
+          "pcode": "LR0807",
+          "name": "Zorzor",
+          "area_sqkm": 3127.30542698,
+          "center_lat": 7.91629159,
+          "center_lon": -9.68494086
+        }
+      ]
+    },
+    {
+      "pcode": "LR09",
+      "name": "Margibi",
+      "area_sqkm": 2555.81842443,
+      "center_lat": 6.51053995,
+      "center_lon": -10.04053785,
+      "lgas": [
+        {
+          "pcode": "LR0901",
+          "name": "Firestone",
+          "area_sqkm": 393.19924772,
+          "center_lat": 6.37354767,
+          "center_lon": -10.33555331
+        },
+        {
+          "pcode": "LR0902",
+          "name": "Gibi",
+          "area_sqkm": 554.85841506,
+          "center_lat": 6.56394791,
+          "center_lon": -10.01965855
+        },
+        {
+          "pcode": "LR0903",
+          "name": "Kakata",
+          "area_sqkm": 1033.2027202,
+          "center_lat": 6.69125911,
+          "center_lon": -10.25350455
+        },
+        {
+          "pcode": "LR0904",
+          "name": "Mambah Kaba",
+          "area_sqkm": 574.55804144,
+          "center_lat": 6.25697451,
+          "center_lon": -10.50402312
+        }
+      ]
+    },
+    {
+      "pcode": "LR10",
+      "name": "Maryland",
+      "area_sqkm": 2271.57795005,
+      "center_lat": 4.74519737,
+      "center_lon": -7.68161557,
+      "lgas": [
+        {
+          "pcode": "LR1001",
+          "name": "Gwelekpoken",
+          "area_sqkm": 324.23555918,
+          "center_lat": 4.96170123,
+          "center_lon": -7.93175267
+        },
+        {
+          "pcode": "LR1002",
+          "name": "Harper",
+          "area_sqkm": 314.16154349,
+          "center_lat": 4.42665902,
+          "center_lon": -7.68700703
+        },
+        {
+          "pcode": "LR1003",
+          "name": "Karluway #1",
+          "area_sqkm": 336.13576719,
+          "center_lat": 4.79217545,
+          "center_lon": -7.75003142
+        },
+        {
+          "pcode": "LR1004",
+          "name": "Karluway #2",
+          "area_sqkm": 431.44440153,
+          "center_lat": 4.69245144,
+          "center_lon": -7.68024151
+        },
+        {
+          "pcode": "LR1005",
+          "name": "Nyorken",
+          "area_sqkm": 199.28352801,
+          "center_lat": 5.001129,
+          "center_lon": -7.86679742
+        },
+        {
+          "pcode": "LR1006",
+          "name": "Pleebo/Sodoken",
+          "area_sqkm": 458.59584879,
+          "center_lat": 4.55064629,
+          "center_lon": -7.68171369
+        },
+        {
+          "pcode": "LR1007",
+          "name": "Whojah",
+          "area_sqkm": 207.72130187,
+          "center_lat": 4.94472664,
+          "center_lon": -8.01596278
+        }
+      ]
+    },
+    {
+      "pcode": "LR11",
+      "name": "Montserrado",
+      "area_sqkm": 1857.04169815,
+      "center_lat": 6.52366634,
+      "center_lon": -10.56862003,
+      "lgas": [
+        {
+          "pcode": "LR1101",
+          "name": "Careysburg",
+          "area_sqkm": 342.90433395,
+          "center_lat": 6.44191167,
+          "center_lon": -10.56524363
+        },
+        {
+          "pcode": "LR1102",
+          "name": "Commonwealth 1",
+          "area_sqkm": 98.49111009,
+          "center_lat": 6.39232368,
+          "center_lon": -10.65275967
+        },
+        {
+          "pcode": "LR1103",
+          "name": "Greater Monrovia",
+          "area_sqkm": 195.67125556,
+          "center_lat": 6.31873738,
+          "center_lon": -10.69889508
+        },
+        {
+          "pcode": "LR1104",
+          "name": "St. Paul River",
+          "area_sqkm": 452.16826793,
+          "center_lat": 6.49958218,
+          "center_lon": -10.73652408
+        },
+        {
+          "pcode": "LR1105",
+          "name": "Todee",
+          "area_sqkm": 767.80673062,
+          "center_lat": 6.63163732,
+          "center_lon": -10.52026246
+        }
+      ]
+    },
+    {
+      "pcode": "LR12",
+      "name": "Nimba",
+      "area_sqkm": 11426.62651057,
+      "center_lat": 6.76087002,
+      "center_lon": -8.74805035,
+      "lgas": [
+        {
+          "pcode": "LR1201",
+          "name": "Boe & Quilla",
+          "area_sqkm": 833.04560616,
+          "center_lat": 6.78041368,
+          "center_lon": -8.62680408
+        },
+        {
+          "pcode": "LR1202",
+          "name": "Buu-Yao",
+          "area_sqkm": 843.55368725,
+          "center_lat": 6.8598716,
+          "center_lon": -8.4112595
+        },
+        {
+          "pcode": "LR1203",
+          "name": "Doe",
+          "area_sqkm": 1279.90259158,
+          "center_lat": 6.60461517,
+          "center_lon": -8.84544544
+        },
+        {
+          "pcode": "LR1204",
+          "name": "Garr-Bain",
+          "area_sqkm": 396.57517086,
+          "center_lat": 7.21852601,
+          "center_lon": -8.9146796
+        },
+        {
+          "pcode": "LR1205",
+          "name": "Gbehlay-Geh",
+          "area_sqkm": 562.77882963,
+          "center_lat": 7.36126352,
+          "center_lon": -8.48123399
+        },
+        {
+          "pcode": "LR1206",
+          "name": "Gbi & Doru",
+          "area_sqkm": 2050.9977465,
+          "center_lat": 6.12834485,
+          "center_lon": -8.97462183
+        },
+        {
+          "pcode": "LR1207",
+          "name": "Gbor",
+          "area_sqkm": 132.39165812,
+          "center_lat": 7.0963917,
+          "center_lon": -8.71652793
+        },
+        {
+          "pcode": "LR1208",
+          "name": "Kparblee",
+          "area_sqkm": 290.49466956,
+          "center_lat": 6.64462179,
+          "center_lon": -8.52046948
+        },
+        {
+          "pcode": "LR1209",
+          "name": "Leewehpea-Mahn",
+          "area_sqkm": 355.25028808,
+          "center_lat": 7.04315295,
+          "center_lon": -8.90507761
+        },
+        {
+          "pcode": "LR1210",
+          "name": "Meinpea-Mahn",
+          "area_sqkm": 695.7777002,
+          "center_lat": 7.00784916,
+          "center_lon": -9.0682327
+        },
+        {
+          "pcode": "LR1211",
+          "name": "Sanniquellie Mahn",
+          "area_sqkm": 484.04038359,
+          "center_lat": 7.38193642,
+          "center_lon": -8.70894036
+        },
+        {
+          "pcode": "LR1212",
+          "name": "Twan River",
+          "area_sqkm": 743.39727147,
+          "center_lat": 7.08868519,
+          "center_lon": -8.43572344
+        },
+        {
+          "pcode": "LR1213",
+          "name": "Wee-Gbehyi-Mahn",
+          "area_sqkm": 429.4972444,
+          "center_lat": 6.90578349,
+          "center_lon": -8.86390595
+        },
+        {
+          "pcode": "LR1214",
+          "name": "Yarmein",
+          "area_sqkm": 547.0705578,
+          "center_lat": 7.52288971,
+          "center_lon": -8.6153181
+        },
+        {
+          "pcode": "LR1215",
+          "name": "Yarpea Mahn",
+          "area_sqkm": 379.07183267,
+          "center_lat": 7.23659085,
+          "center_lon": -8.68655585
+        },
+        {
+          "pcode": "LR1216",
+          "name": "Yarwein Mehnsonnoh",
+          "area_sqkm": 1023.06635443,
+          "center_lat": 6.59355485,
+          "center_lon": -9.08665461
+        },
+        {
+          "pcode": "LR1217",
+          "name": "Zoe-Gbao",
+          "area_sqkm": 379.71491827,
+          "center_lat": 6.99900046,
+          "center_lon": -8.70337504
+        }
+      ]
+    },
+    {
+      "pcode": "LR13",
+      "name": "River Gee",
+      "area_sqkm": 5054.33139326,
+      "center_lat": 5.21532929,
+      "center_lon": -7.86750857,
+      "lgas": [
+        {
+          "pcode": "LR1301",
+          "name": "Chedepo",
+          "area_sqkm": 872.80380744,
+          "center_lat": 5.45967541,
+          "center_lon": -8.05467434
+        },
+        {
+          "pcode": "LR1302",
+          "name": "Gbeapo",
+          "area_sqkm": 203.73335533,
+          "center_lat": 5.24867308,
+          "center_lon": -7.97146075
+        },
+        {
+          "pcode": "LR1303",
+          "name": "Glaro",
+          "area_sqkm": 937.43292335,
+          "center_lat": 5.39010225,
+          "center_lon": -7.563204
+        },
+        {
+          "pcode": "LR1304",
+          "name": "Karforh",
+          "area_sqkm": 273.84189678,
+          "center_lat": 5.28188556,
+          "center_lon": -8.13871693
+        },
+        {
+          "pcode": "LR1305",
+          "name": "Nanee",
+          "area_sqkm": 246.86733991,
+          "center_lat": 5.15466952,
+          "center_lon": -8.1324365
+        },
+        {
+          "pcode": "LR1306",
+          "name": "Nyenawliken",
+          "area_sqkm": 245.67226975,
+          "center_lat": 5.12862077,
+          "center_lon": -7.98339728
+        },
+        {
+          "pcode": "LR1307",
+          "name": "Nyenebo",
+          "area_sqkm": 348.08154157,
+          "center_lat": 4.8987281,
+          "center_lon": -7.72108235
+        },
+        {
+          "pcode": "LR1308",
+          "name": "Potupo",
+          "area_sqkm": 902.47258664,
+          "center_lat": 5.33563841,
+          "center_lon": -7.81789737
+        },
+        {
+          "pcode": "LR1309",
+          "name": "Sarbo",
+          "area_sqkm": 542.38154249,
+          "center_lat": 5.16892195,
+          "center_lon": -7.63500446
+        },
+        {
+          "pcode": "LR1310",
+          "name": "Tuobo",
+          "area_sqkm": 481.04413002,
+          "center_lat": 5.0178681,
+          "center_lon": -7.69493134
+        }
+      ]
+    },
+    {
+      "pcode": "LR14",
+      "name": "Rivercess",
+      "area_sqkm": 5532.59799401,
+      "center_lat": 5.88406938,
+      "center_lon": -9.3645423,
+      "lgas": [
+        {
+          "pcode": "LR1401",
+          "name": "Beawor",
+          "area_sqkm": 546.65715127,
+          "center_lat": 5.60051486,
+          "center_lon": -9.26585345
+        },
+        {
+          "pcode": "LR1402",
+          "name": "Central Rivercess",
+          "area_sqkm": 1799.74051736,
+          "center_lat": 5.8040771,
+          "center_lon": -9.30649024
+        },
+        {
+          "pcode": "LR1403",
+          "name": "Doedain",
+          "area_sqkm": 1033.9436426,
+          "center_lat": 6.28539589,
+          "center_lon": -9.24874344
+        },
+        {
+          "pcode": "LR1404",
+          "name": "Fen River",
+          "area_sqkm": 256.24309087,
+          "center_lat": 5.6053317,
+          "center_lon": -9.65174061
+        },
+        {
+          "pcode": "LR1405",
+          "name": "Jo River",
+          "area_sqkm": 725.03047102,
+          "center_lat": 6.03532648,
+          "center_lon": -9.46168163
+        },
+        {
+          "pcode": "LR1406",
+          "name": "Norwein",
+          "area_sqkm": 606.42320271,
+          "center_lat": 5.84083979,
+          "center_lon": -9.58768927
+        },
+        {
+          "pcode": "LR1407",
+          "name": "Sam Gbalor",
+          "area_sqkm": 371.63751979,
+          "center_lat": 5.3828847,
+          "center_lon": -9.4113292
+        },
+        {
+          "pcode": "LR1408",
+          "name": "Zarflahn",
+          "area_sqkm": 192.92239839,
+          "center_lat": 5.55610615,
+          "center_lon": -9.5488051
+        }
+      ]
+    },
+    {
+      "pcode": "LR15",
+      "name": "Sinoe",
+      "area_sqkm": 9661.46819572,
+      "center_lat": 5.33438453,
+      "center_lon": -8.80237645,
+      "lgas": [
+        {
+          "pcode": "LR1501",
+          "name": "Bodae",
+          "area_sqkm": 277.92172559,
+          "center_lat": 5.13997417,
+          "center_lon": -8.34026963
+        },
+        {
+          "pcode": "LR1502",
+          "name": "Bokon",
+          "area_sqkm": 139.3493694,
+          "center_lat": 5.03640336,
+          "center_lon": -8.45228191
+        },
+        {
+          "pcode": "LR1503",
+          "name": "Butaw",
+          "area_sqkm": 240.90398098,
+          "center_lat": 5.13285549,
+          "center_lon": -9.07237117
+        },
+        {
+          "pcode": "LR1504",
+          "name": "Dugbe River",
+          "area_sqkm": 673.66015614,
+          "center_lat": 4.98062277,
+          "center_lon": -8.67734286
+        },
+        {
+          "pcode": "LR1505",
+          "name": "Greenville",
+          "area_sqkm": 83.68737528,
+          "center_lat": 5.04562811,
+          "center_lon": -9.04189211
+        },
+        {
+          "pcode": "LR1506",
+          "name": "Jaedae",
+          "area_sqkm": 292.82747216,
+          "center_lat": 5.08595309,
+          "center_lon": -8.52193255
+        },
+        {
+          "pcode": "LR1507",
+          "name": "Jeadepo",
+          "area_sqkm": 1677.15166088,
+          "center_lat": 5.36904199,
+          "center_lon": -8.37384776
+        },
+        {
+          "pcode": "LR1508",
+          "name": "Juarzon",
+          "area_sqkm": 199.39928553,
+          "center_lat": 5.31210989,
+          "center_lon": -8.92003578
+        },
+        {
+          "pcode": "LR1509",
+          "name": "Kpayan",
+          "area_sqkm": 1004.17828418,
+          "center_lat": 5.10537854,
+          "center_lon": -8.84967978
+        },
+        {
+          "pcode": "LR1510",
+          "name": "Kulu Shaw Boe",
+          "area_sqkm": 1325.72505189,
+          "center_lat": 5.5630325,
+          "center_lon": -8.97418395
+        },
+        {
+          "pcode": "LR1511",
+          "name": "Plahn Nyarn",
+          "area_sqkm": 280.16044565,
+          "center_lat": 5.32300029,
+          "center_lon": -9.03486584
+        },
+        {
+          "pcode": "LR1512",
+          "name": "Pynes Town",
+          "area_sqkm": 776.07966764,
+          "center_lat": 5.56876741,
+          "center_lon": -8.56933389
+        },
+        {
+          "pcode": "LR1513",
+          "name": "Sanquin Dist #1",
+          "area_sqkm": 366.36208227,
+          "center_lat": 5.48246517,
+          "center_lon": -9.22462395
+        },
+        {
+          "pcode": "LR1514",
+          "name": "Sanquin Dist #3",
+          "area_sqkm": 451.08194889,
+          "center_lat": 5.27912056,
+          "center_lon": -9.32602924
+        },
+        {
+          "pcode": "LR1515",
+          "name": "Sanquin Dist #2",
+          "area_sqkm": 313.06838912,
+          "center_lat": 5.21068476,
+          "center_lon": -9.1721779
+        },
+        {
+          "pcode": "LR1516",
+          "name": "Seekon",
+          "area_sqkm": 932.8411018,
+          "center_lat": 5.63480203,
+          "center_lon": -8.70250607
+        },
+        {
+          "pcode": "LR1517",
+          "name": "Wedjah",
+          "area_sqkm": 627.07019832,
+          "center_lat": 5.29336537,
+          "center_lon": -8.79288397
+        }
+      ]
+    }
+  ]
+}

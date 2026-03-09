@@ -2,8 +2,8 @@
 # download-hdx.ps1 - Download HDX COD-AB administrative boundary GeoJSON for all countries
 #
 # HDX packages bundle all admin levels into a single <iso3>_admin_boundaries.geojson.zip.
-# This script downloads that zip, extracts it, and copies the ADM1 + ADM2 GeoJSON files
-# into hdx/<country>_adm1.geojson and hdx/<country>_adm2.geojson.
+# This script downloads that zip, extracts it, and copies ALL available admN GeoJSON files
+# into hdx/<country>_adm1.geojson, hdx/<country>_adm2.geojson, hdx/<country>_adm3.geojson, etc.
 #
 # India is excluded: no standard COD-AB package on HDX.
 # Rwanda is excluded: HDX package has no GeoJSON (only SHP/EMF) -- see note below.
@@ -57,7 +57,7 @@ $HdxApiBase = "https://data.humdata.org/api/3/action"
 
 Write-Host ""
 Write-Host "================================================================" -ForegroundColor Cyan
-Write-Host "  Downloading HDX COD-AB boundary data (ADM1 + ADM2)" -ForegroundColor Cyan
+Write-Host "  Downloading HDX COD-AB boundary data (all admin levels)" -ForegroundColor Cyan
 Write-Host "================================================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -72,11 +72,9 @@ foreach ($c in $Countries) {
     $i++
     Log-Info "[$i/$total] $($c.Name) ($($c.PackageId))..."
 
-    $adm1Out = Join-Path $HdxDir "$($c.Prefix)_adm1.geojson"
-    $adm2Out = Join-Path $HdxDir "$($c.Prefix)_adm2.geojson"
-
-    if ((Test-Path $adm1Out) -and (Test-Path $adm2Out) -and -not $Force) {
-        Log-Info "  Both ADM1 + ADM2 already exist - skipping (use -Force to re-download)"
+    $existingFiles = @(Get-ChildItem "$HdxDir\$($c.Prefix)_adm*.geojson" -ErrorAction SilentlyContinue)
+    if ($existingFiles.Count -gt 0 -and -not $Force) {
+        Log-Info "  $($existingFiles.Count) adm files already exist - skipping (use -Force to re-download)"
         $skipped += $c.ShortName
         continue
     }
@@ -152,53 +150,43 @@ foreach ($c in $Countries) {
         continue
     }
 
-    # Find ADM1 and ADM2 GeoJSON files within the extracted directory
+    # Find all admN GeoJSON files within the extracted directory
     # Typical naming: nga_admbnda_adm1_osgof_20190417.geojson
     $allJsonFiles = Get-ChildItem $extractDir -Recurse | Where-Object {
         $_.Extension -in @(".geojson", ".json") -and -not $_.PSIsContainer
     }
     Log-Info "  Found $($allJsonFiles.Count) JSON/GeoJSON files in zip"
 
-    # Match admin1 / admin2 (not admin10, admin11, etc.) — files are named e.g. nga_admin1.geojson
-    # Prefer non-_em variants (the _em suffix = emergency management simplified version)
-    $adm1Candidates = $allJsonFiles | Where-Object { $_.Name -imatch "admin1[._]" }
-    $adm2Candidates = $allJsonFiles | Where-Object { $_.Name -imatch "admin2[._]" }
-    $adm1Extracted = ($adm1Candidates | Where-Object { $_.Name -notmatch "_em\." }) | Select-Object -First 1
-    if (-not $adm1Extracted) { $adm1Extracted = $adm1Candidates | Select-Object -First 1 }
-    $adm2Extracted = ($adm2Candidates | Where-Object { $_.Name -notmatch "_em\." }) | Select-Object -First 1
-    if (-not $adm2Extracted) { $adm2Extracted = $adm2Candidates | Select-Object -First 1 }
+    # Match any adminN file — exclude _em simplified variants
+    $admNFiles = $allJsonFiles | Where-Object {
+        $_.Name -imatch "admin\d+[._]" -and $_.Name -notmatch "_em\."
+    }
 
-    if (-not $adm1Extracted) {
-        Log-Warn "  No admin1 file found in zip. Files present:"
+    if ($admNFiles.Count -eq 0) {
+        Log-Warn "  No adminN files found in zip. Files present:"
         $allJsonFiles | ForEach-Object { Log-Warn "    $($_.Name)" }
         Remove-Item $tempZip -ErrorAction SilentlyContinue
         Remove-Item $extractDir -Recurse -ErrorAction SilentlyContinue
-        $failed += "$($c.ShortName): no admin1 file in zip"
-        continue
-    }
-    if (-not $adm2Extracted) {
-        Log-Warn "  No admin2 file found in zip. Files present:"
-        $allJsonFiles | ForEach-Object { Log-Warn "    $($_.Name)" }
-        Remove-Item $tempZip -ErrorAction SilentlyContinue
-        Remove-Item $extractDir -Recurse -ErrorAction SilentlyContinue
-        $failed += "$($c.ShortName): no admin2 file in zip"
+        $failed += "$($c.ShortName): no adminN files in zip"
         continue
     }
 
-    Log-Info "  ADM1 source: $($adm1Extracted.Name)"
-    Log-Info "  ADM2 source: $($adm2Extracted.Name)"
-
-    Copy-Item $adm1Extracted.FullName $adm1Out -Force
-    Copy-Item $adm2Extracted.FullName $adm2Out -Force
+    $copiedLevels = @()
+    foreach ($f in $admNFiles) {
+        if ($f.Name -imatch "admin(\d+)[._]") {
+            $level = $Matches[1]
+            $dest  = Join-Path $HdxDir "$($c.Prefix)_adm${level}.geojson"
+            Copy-Item $f.FullName $dest -Force
+            $sz = (Get-Item $dest).Length
+            Log-Success ("  ADM$level -> $($c.Prefix)_adm${level}.geojson ({0:N1} MB)" -f ($sz / 1MB))
+            $copiedLevels += "ADM$level"
+        }
+    }
+    Log-Info "  Extracted levels: $($copiedLevels -join ', ')"
 
     # Cleanup temp files
     Remove-Item $tempZip -ErrorAction SilentlyContinue
     Remove-Item $extractDir -Recurse -ErrorAction SilentlyContinue
-
-    $adm1Sz = (Get-Item $adm1Out).Length
-    $adm2Sz = (Get-Item $adm2Out).Length
-    Log-Success ("  ADM1 -> $($c.Prefix)_adm1.geojson ({0:N1} MB)" -f ($adm1Sz / 1MB))
-    Log-Success ("  ADM2 -> $($c.Prefix)_adm2.geojson ({0:N1} MB)" -f ($adm2Sz / 1MB))
 
     $succeeded += $c.ShortName
 }
@@ -218,7 +206,9 @@ Log-Warn "India excluded: no COD-AB package on HDX."
 
 if ($succeeded.Count -gt 0) {
     Write-Host ""
-    Log-Info "Next step: generate PMTiles with:"
+    Log-Info "Next step: import into PostgreSQL with:"
+    Log-Info "  node scripts/import-hdx-to-pg.js"
+    Log-Info "Or generate PMTiles with:"
     Log-Info "  .\scripts\generate-hdx-boundaries.ps1"
 }
 

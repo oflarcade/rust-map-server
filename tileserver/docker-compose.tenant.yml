@@ -1,4 +1,22 @@
 services:
+  postgres:
+    image: postgis/postgis:16-3.4-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mapserver
+      POSTGRES_USER: mapserver
+      POSTGRES_PASSWORD: mapserver
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../scripts/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mapserver -d mapserver"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   martin:
     image: ghcr.io/maplibre/martin:v0.14.2
     restart: unless-stopped
@@ -13,16 +31,35 @@ services:
     command: --config /config/martin-config.yaml
 
   nginx:
-    image: openresty/openresty:alpine
+    build:
+      context: ./
+      dockerfile: Dockerfile.nginx
     restart: unless-stopped
     mem_limit: 1536m
     cpus: 1.0
     ports:
       - "8080:8080"
+    environment:
+      - ADMIN_TOKEN=changeme-replace-in-production
     volumes:
       - ./nginx-tenant-proxy.conf:/etc/nginx/conf.d/default.conf:ro
       - ./lua:/etc/nginx/lua:ro
       - ../data/boundaries:/data/boundaries:ro
       - ../data/hdx:/data/hdx:ro
     depends_on:
-      - martin
+      postgres:
+        condition: service_healthy
+      martin:
+        condition: service_started
+
+  vue-app:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ../View/dist:/usr/share/nginx/html:ro
+      - ./vue-nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+volumes:
+  postgres_data:

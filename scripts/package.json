@@ -1,0 +1,8 @@
+{
+  "name": "map-server-scripts",
+  "private": true,
+  "description": "Server-side scripts for tile generation and data import",
+  "dependencies": {
+    "pg": "^8.13.0"
+  }
+}

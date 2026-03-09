@@ -1,0 +1,4 @@
+FROM openresty/openresty:alpine
+
+# Copy vendored pgmoon (pure Lua, no C deps, no luarocks needed)
+COPY lua/pgmoon /etc/nginx/lua/pgmoon

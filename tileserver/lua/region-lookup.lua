@@ -1,14 +1,15 @@
 -- region-lookup.lua
 -- GET /region?lat=<lat>&lon=<lon>
--- Returns the HDX pcode of the admin region containing the given coordinates.
--- Searches adm2 (LGA/district) first; falls back to adm1 (state/region) if no adm2 match.
+-- Returns the zone or LGA containing the given coordinates via PostGIS ST_Contains.
+-- Keeps the ngx.shared result cache (L1) for sub-ms repeat hits.
 --
--- Response:
---   { found: true,  pcode, level, adm2_pcode, adm2_name, adm1_pcode, adm1_name, adm0_pcode, adm0_name }
+-- Response (found):
+--   { found, pcode, level, name, state_pcode, adm2_pcode, adm2_name }
+-- Response (not found):
 --   { found: false, error, code, lat, lon }
 
 local cjson = require("cjson.safe")
-local hdx_cache = require("hdx-cache")
+local db    = require("boundary-db")
 
 -- Validate inputs
 local lat_str = ngx.var.arg_lat or ""
@@ -38,127 +39,61 @@ if lat < -90 or lat > 90 or lon < -180 or lon > 180 then
     return
 end
 
-local prefix = ngx.var.hdx_prefix
-if not prefix or prefix == "" then
-    ngx.status = 404
-    ngx.header["Content-Type"] = "application/json"
-    ngx.say('{"error":"No HDX data for this tenant","code":"HDX_NOT_AVAILABLE"}')
-    return
-end
+local tenant_id = tonumber(ngx.var.http_x_tenant_id)
 
-local cache_key = prefix .. ":" .. string.format("%.4f", lat) .. ":" .. string.format("%.4f", lon)
+-- L1 result cache (keyed by tenant + truncated coords)
+local cache_key    = tenant_id .. ":" .. string.format("%.4f", lat) .. ":" .. string.format("%.4f", lon)
 local region_cache = ngx.shared.region_cache
+
 if region_cache then
     local cached = region_cache:get(cache_key)
     if cached then
         local status_code, body = cached:match("^(%d+)\n(.+)$")
         if status_code then
             ngx.status = tonumber(status_code)
-            ngx.header["Content-Type"] = "application/json"
+            ngx.header["Content-Type"]  = "application/json"
             ngx.header["Cache-Control"] = "no-store"
+            ngx.header["X-Cache"]       = "HIT"
             ngx.say(body)
             return
         end
     end
 end
 
--- Ray-casting point-in-polygon for a single coordinate ring
-local function point_in_ring(px, py, ring)
-    local inside = false
-    local n = #ring
-    local j = n
-    for i = 1, n do
-        local xi, yi = ring[i][1], ring[i][2]
-        local xj, yj = ring[j][1], ring[j][2]
-        if (yi > py) ~= (yj > py) and
-           px < (xj - xi) * (py - yi) / (yj - yi) + xi then
-            inside = not inside
-        end
-        j = i
-    end
-    return inside
-end
+ngx.header["Content-Type"]  = "application/json"
+ngx.header["Cache-Control"] = "no-store"
+ngx.header["X-Cache"]       = "MISS"
 
--- Test a point (px=longitude, py=latitude) against a GeoJSON geometry
-local function point_in_geometry(px, py, geometry)
-    local gtype = geometry.type
-    if gtype == "Polygon" then
-        return point_in_ring(px, py, geometry.coordinates[1])
-    elseif gtype == "MultiPolygon" then
-        for _, poly in ipairs(geometry.coordinates) do
-            if point_in_ring(px, py, poly[1]) then return true end
-        end
-    end
-    return false
-end
+local row, err = db.region_lookup(tenant_id, lat, lon)
 
--- Search adm2 (LGA / district level) first
-local adm2 = hdx_cache.get_adm(prefix, "adm2")
-if not adm2 then
-    ngx.status = 404
-    ngx.header["Content-Type"] = "application/json"
-    ngx.say('{"error":"HDX data not found. Run download-hdx.ps1","code":"HDX_NOT_AVAILABLE"}')
+if err then
+    ngx.status = 502
+    local body = cjson.encode({ error = "Database error", code = "DB_ERROR", detail = err })
+    ngx.say(body)
     return
 end
 
-ngx.header["Content-Type"]  = "application/json"
-ngx.header["Cache-Control"] = "no-store"
-
-for _, feat in ipairs(adm2.features) do
-    if feat.geometry and point_in_geometry(lon, lat, feat.geometry) then
-        local p = feat.properties
-        local payload = cjson.encode({
-            found      = true,
-            pcode      = p.adm2_pcode,
-            level      = "adm2",
-            adm2_pcode = p.adm2_pcode,
-            adm2_name  = p.adm2_name,
-            adm1_pcode = p.adm1_pcode,
-            adm1_name  = p.adm1_name,
-            adm0_pcode = p.adm0_pcode,
-            adm0_name  = p.adm0_name,
-        })
-        if region_cache then region_cache:set(cache_key, "200\n" .. payload, 3600) end
-        ngx.header["Content-Type"]  = "application/json"
-        ngx.header["Cache-Control"] = "no-store"
-        ngx.say(payload)
-        return
-    end
+if row then
+    local payload = cjson.encode({
+        found       = true,
+        pcode       = row.pcode,
+        level       = row.level,
+        name        = row.name,
+        state_pcode = row.state_pcode,
+        adm2_pcode  = row.adm2_pcode,
+        adm2_name   = row.adm2_name,
+    })
+    if region_cache then region_cache:set(cache_key, "200\n" .. payload, 3600) end
+    ngx.say(payload)
+else
+    local payload = cjson.encode({
+        found = false,
+        error = "Coordinates do not fall within any known boundary for this tenant",
+        code  = "REGION_NOT_FOUND",
+        lat   = lat,
+        lon   = lon,
+    })
+    if region_cache then region_cache:set(cache_key, "404\n" .. payload, 3600) end
+    ngx.status = 404
+    ngx.say(payload)
 end
-
--- Fallback: search adm1 (state / region level)
-local adm1 = hdx_cache.get_adm(prefix, "adm1")
-if adm1 then
-    for _, feat in ipairs(adm1.features) do
-        if feat.geometry and point_in_geometry(lon, lat, feat.geometry) then
-            local p = feat.properties
-            local payload = cjson.encode({
-                found      = true,
-                pcode      = p.adm1_pcode,
-                level      = "adm1",
-                adm1_pcode = p.adm1_pcode,
-                adm1_name  = p.adm1_name,
-                adm0_pcode = p.adm0_pcode,
-                adm0_name  = p.adm0_name,
-            })
-            if region_cache then region_cache:set(cache_key, "200\n" .. payload, 3600) end
-            ngx.header["Content-Type"]  = "application/json"
-            ngx.header["Cache-Control"] = "no-store"
-            ngx.say(payload)
-            return
-        end
-    end
-end
-
--- No match at any level
-local payload = cjson.encode({
-    found = false,
-    error = "Coordinates do not fall within any known boundary for this tenant",
-    code  = "REGION_NOT_FOUND",
-    lat   = lat,
-    lon   = lon,
-})
-if region_cache then region_cache:set(cache_key, "404\n" .. payload, 3600) end
-ngx.status = 404
-ngx.header["Content-Type"] = "application/json"
-ngx.say(payload)

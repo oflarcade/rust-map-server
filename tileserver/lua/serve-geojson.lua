@@ -1,57 +1,49 @@
 -- serve-geojson.lua
--- Serves boundary GeoJSON for a tenant: merges /data/hdx/<prefix>_adm1.geojson + _adm2.geojson
+-- GET /boundaries/geojson
+-- Streams a GeoJSON FeatureCollection for the tenant from PostGIS.
+-- Includes zones (pre-computed union), states, and ungrouped LGAs.
+-- Rwanda and India tenants return an empty FeatureCollection (no HDX data imported).
 
-local prefix = ngx.var.hdx_prefix
-if not prefix or prefix == "" then
-    ngx.status = 404
+local cjson = require("cjson.safe")
+local db    = require("boundary-db")
+
+local tenant_id = tonumber(ngx.var.http_x_tenant_id)
+
+local rows, err = db.get_geojson(tenant_id)
+if err then
+    ngx.status = 502
     ngx.header["Content-Type"] = "application/json"
-    ngx.say('{"error":"No HDX boundary data for this tenant","code":"HDX_NOT_AVAILABLE"}')
-    return
-end
-
-local function read_all(path)
-    local f = io.open(path, "r")
-    if not f then return nil end
-    local data = f:read("*a")
-    f:close()
-    return data
-end
-
-local function features_inner(content)
-    local open_marker = content:find('"features"%s*:%s*%[')
-    if not open_marker then return nil end
-    local open = content:find('%[', open_marker) + 1
-    local close = content:find('%]%s*}[%s%c]*$')
-    if not close then return nil end
-    return content:sub(open, close - 1)
-end
-
-local adm1 = read_all("/data/hdx/" .. prefix .. "_adm1.geojson")
-local adm2 = read_all("/data/hdx/" .. prefix .. "_adm2.geojson")
-
-if not adm1 or not adm2 then
-    ngx.status = 404
-    ngx.header["Content-Type"] = "application/json"
-    ngx.say('{"error":"HDX GeoJSON not found","code":"GEOJSON_NOT_FOUND","prefix":"' .. prefix .. '"}')
-    return
-end
-
-local inner1 = features_inner(adm1)
-local inner2 = features_inner(adm2)
-
-if not inner1 or not inner2 then
-    ngx.status = 500
-    ngx.header["Content-Type"] = "application/json"
-    ngx.say('{"error":"Failed to parse HDX GeoJSON","code":"PARSE_ERROR","prefix":"' .. prefix .. '"}')
+    ngx.say(cjson.encode({ error = "Database error", code = "DB_ERROR", detail = err }))
     return
 end
 
 ngx.header["Content-Type"]  = "application/geo+json"
-ngx.header["Cache-Control"] = "public, max-age=3600"
+ngx.header["Cache-Control"] = "public, max-age=300"
 
-local sep = (inner1 ~= "" and inner2 ~= "") and ',' or ''
 ngx.print('{"type":"FeatureCollection","features":[')
-ngx.print(inner1)
-ngx.print(sep)
-ngx.print(inner2)
+
+local first = true
+for _, row in ipairs(rows or {}) do
+    if row.geometry then
+        local props = {
+            pcode        = row.pcode,
+            name         = row.name,
+            feature_type = row.feature_type,
+            parent_pcode = row.parent_pcode,
+        }
+        if row.color and row.color ~= "" then
+            props.color = row.color
+        end
+        if row.constituent_pcodes and row.constituent_pcodes ~= "" then
+            props.constituent_pcodes = row.constituent_pcodes
+        end
+
+        local feature = '{"type":"Feature","geometry":' .. row.geometry ..
+                        ',"properties":' .. cjson.encode(props) .. '}'
+        if not first then ngx.print(',') end
+        ngx.print(feature)
+        first = false
+    end
+end
+
 ngx.print(']}')
