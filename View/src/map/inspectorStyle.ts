@@ -14,8 +14,9 @@ function getSourceLayer(meta: any, preferred: string): string {
   return found ? found.id : '';
 }
 
-export function resolveBoundarySourceKey(tenant: TenantConfig): string {
-  return tenant.hdxBoundarySource ?? tenant.boundarySource;
+export function resolveBoundarySourceKey(tenant: TenantConfig, useHdx = false): string {
+  if (useHdx && tenant.hdxBoundarySource) return tenant.hdxBoundarySource;
+  return tenant.boundarySource;
 }
 
 export async function loadMartinTileMetadata(
