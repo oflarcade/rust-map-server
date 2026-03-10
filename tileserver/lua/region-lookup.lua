@@ -6,10 +6,11 @@
 -- Response (found):
 --   {
 --     found: true, matched_level: "zone"|"lga",
---     country: { pcode, name },
---     state:   { pcode, name },
---     zone:    { pcode, name, color },   -- only when matched via custom zone
---     lga:     { pcode, name }           -- specific LGA (may be null if zone geom has no LGA match)
+--     -- HDX-style admin hierarchy objects (mirroring adm_features levels)
+--     adm_0: { pcode, name },            -- country
+--     adm_1: { pcode, name },            -- state / adm1
+--     adm_3: { pcode, name, color },     -- zone (only when matched_level === "zone")
+--     adm_4: { pcode, name }             -- lga / adm2 (when an LGA match exists)
 --   }
 -- Response (not found):
 --   { found: false, error, code, lat, lon }
@@ -88,28 +89,29 @@ if row then
     local payload = {
         found         = true,
         matched_level = row.matched_level,
-        country = {
+        -- HDX-style admin hierarchy objects only
+        adm_0 = {
             pcode = country_pcode,
             name  = country_name,
         },
-        state = {
+        adm_1 = {
             pcode = row.state_pcode,
             name  = row.state_name,
         },
     }
 
     if row.matched_level == "zone" then
-        payload.zone = {
+        payload.adm_3 = {
             pcode = row.zone_pcode,
             name  = row.zone_name,
             color = row.zone_color,
         }
         -- lga may be nil if the zone geometry spans an area with no constituent match
         if row.lga_pcode then
-            payload.lga = { pcode = row.lga_pcode, name = row.lga_name }
+            payload.adm_4 = { pcode = row.lga_pcode, name = row.lga_name }
         end
     else
-        payload.lga = { pcode = row.lga_pcode, name = row.lga_name }
+        payload.adm_4 = { pcode = row.lga_pcode, name = row.lga_name }
     end
 
     local body = cjson.encode(payload)

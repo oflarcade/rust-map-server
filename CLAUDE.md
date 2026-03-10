@@ -60,20 +60,20 @@ zones          — custom zone groupings per tenant (ST_Union geometry, pre-comp
 | `PUT /admin/zones/:id` | X-Tenant-ID | Update zone name/color/members |
 | `DELETE /admin/zones/:id` | X-Tenant-ID | Delete zone (LGAs return to ungrouped automatically) |
 | `GET /health` | None | Health probe |
-| `GET /catalog` | None (port 3000) | Martin source list |
+| `GET /catalog` | None (port 3000) | Martin catalog — lists all configured vector tile sources (base map and boundary/HDX tiles) used by tenants |
 
 ### /region response shape
 ```json
 {
   "found": true,
   "matched_level": "zone",
-  "country": { "pcode": "KE", "name": "Kenya" },
-  "state":   { "pcode": "KE004", "name": "Tana River" },
-  "zone":    { "pcode": "KE004-Z01", "name": "Zone 1", "color": "#3b82f6" },
-  "lga":     { "pcode": "KE004019", "name": "Galole" }
+  "adm_0": { "pcode": "KE", "name": "Kenya" },
+  "adm_1": { "pcode": "KE004", "name": "Tana River" },
+  "adm_3": { "pcode": "KE004-Z01", "name": "Zone 1", "color": "#3b82f6" },
+  "adm_4": { "pcode": "KE004019", "name": "Galole" }
 }
 ```
-`zone` is present only when `matched_level === "zone"`. For raw LGA hits, only `country + state + lga` are returned.
+`adm_3` is present only when `matched_level === "zone"`. For raw LGA hits, only `adm_0`, `adm_1`, and `adm_4` are returned. For zone matches without a specific LGA hit, only `adm_0` and `adm_1` are present.
 
 ### /boundaries/hierarchy cache
 Cached in `ngx.shared.hierarchy_cache` (8MB, keyed by tenant_id, 24h TTL).
