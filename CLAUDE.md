@@ -4,99 +4,89 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Summary
 
-Multi-tenant vector map tile server for NewGlobe Education's School Pin Map. Replaces Google Maps (~$350-700/mo) with self-hosted PMTiles + Martin tile server (~$5-15/mo). Serves OSM-based map tiles via HTTP range requests to education programs across Africa and India.
+Multi-tenant vector map tile server for NewGlobe Education's School Pin Map. Replaces Google Maps (~$350-700/mo) with self-hosted PMTiles + Martin tile server (~$5-15/mo on GCP). Serves OSM-based map tiles + PostGIS-backed admin boundaries with custom zone management to education programs across Africa and India.
 
-## Common Commands
-
-### Setup & Generation
-Scripts are grouped: **Bash** in `scripts/sh/`, **PowerShell** in `scripts/ps1/`.
-
-**PowerShell (Windows):**
-```powershell
-.\scripts\ps1\setup.ps1                                         # Download Planetiler + OSM data
-.\scripts\ps1\generate-single.ps1 <country>                     # Generate tiles for one country (e.g., nigeria, kenya)
-.\scripts\ps1\generate-all.ps1                                  # All 7 countries
-.\scripts\ps1\generate-states.ps1 <profile> <country> <State>   # State-level tiles (profiles: full|minimal|terrain|terrain-roads)
-.\scripts\ps1\generate-tenants.ps1                              # All tenants (full country + state tiles)
-.\scripts\ps1\generate-tenants.ps1 -Tenant 11 -Profile full     # Single tenant with profile override
-.\scripts\ps1\generate-nigeria-tenants.ps1                      # All Nigeria state tiles from z6 (outputs to pmtiles\z6\)
-.\scripts\ps1\generate-nigeria-tenants.ps1 -Force               # Regenerate even if tiles exist
-```
-
-**Bash (macOS/Linux):**
-```bash
-./scripts/sh/setup.sh
-./scripts/sh/generate-single.sh <country>
-./scripts/sh/generate-all.sh
-./scripts/sh/generate-states.sh <profile> <country> [state1] ...
-./scripts/sh/generate-tenants.sh
-./scripts/sh/run-martin.sh
-```
-
-### Boundary Processing
-```powershell
-node scripts/split-boundaries.js                                 # Split nigeria-boundaries.geojson into per-tenant GeoJSON files
-.\scripts\ps1\download-hdx.ps1                                   # Download HDX COD-AB GeoJSON for all countries into hdx/
-.\scripts\ps1\download-hdx.ps1 -Country kenya                    # Download one country only
-.\scripts\ps1\generate-hdx-boundaries.ps1                         # Convert HDX GeoJSON -> PMTiles (tile inspector comparison)
-.\scripts\ps1\generate-hdx-boundaries.ps1 -Country nigeria       # One country only
-```
-
-### Running the Server (Docker)
-```bash
-docker compose -f tileserver/docker-compose.tenant.yml up       # Start Martin (3000) + Nginx (8080)
-docker compose -f tileserver/docker-compose.tenant.yml restart   # After tile changes
-docker compose -f tileserver/docker-compose.tenant.yml logs martin  # Check Martin logs
-```
-
-### Running the Server (Local Windows)
-```powershell
-.\scripts\ps1\run-martin.ps1               # Martin on port 3001
-```
-
-### Testing
-```bash
-curl.exe http://localhost:8080/health                                                      # Health check
-curl.exe http://localhost:3000/catalog                                                     # Martin source catalog
-curl.exe -H "X-Tenant-ID: 18" http://localhost:8080/tiles/8/136/120                       # Tile request (Jigawa)
-curl.exe -H "X-Tenant-ID: 3" http://localhost:8080/boundaries/geojson                     # HDX boundary GeoJSON (Nigeria)
-curl.exe -H "X-Tenant-ID: 3" "http://localhost:8080/boundaries/search?q=agege&type=hdx"   # Search HDX names
-curl.exe -H "X-Tenant-ID: 3" "http://localhost:8080/region?lat=6.4541&lon=3.3947"          # Region lookup (Nigeria, heavy)
-npx serve . -p 8000  # Then open http://localhost:8000/test/test-tenant-tiles.html
-```
-
-**Region lookup caches:** Worker-level GeoJSON cache (hdx-cache.lua) and shared result cache (region_cache). To test cold vs warm and result-cache hits: see `tileserver/docs/testing-region-cache.md`; run `.\scripts\ps1\test-region-cache.ps1` (Windows).
-
-No automated test suite -- testing is browser-based via HTML files in `test/`.
+**Production:** GCP `martin-tileserver`, zone `us-central1-a`, IP `35.239.86.115`
 
 ## Architecture
 
 ### Data Flow
 ```
-Client (MapLibre GL JS) -> X-Tenant-ID header -> Nginx (8080)
-  -> maps tenant ID to Martin source name -> Martin (3000)
-    -> HTTP range request into .pmtiles file -> protobuf tile response
+Client (MapLibre GL JS)
+  -> X-Tenant-ID header -> Nginx (8080)
+     -> /tiles/*          -> Martin (3000) -> PMTiles (byte-range)
+     -> /boundaries/geojson|hierarchy|search  -> Lua -> PostGIS
+     -> /region           -> Lua -> PostGIS (ST_Contains GIST index)
+     -> /admin/zones      -> Lua -> PostGIS (zone CRUD)
 ```
+
+### Three-Layer Stack
+1. **Martin (Rust)** — serves PMTiles for base OSM tiles + vector boundary tiles
+2. **OpenResty (nginx + Lua)** — tenant routing, PostGIS boundary APIs, zone management
+3. **PostgreSQL + PostGIS** — stores all boundary data, zones, tenant config
 
 ### Two-Layer Map Design
 Every map renders two layers:
-1. **Base tiles** -- OSM data (roads, water, buildings) generated by Planetiler from `.osm.pbf`
-2. **Boundary tiles** -- admin boundaries from `boundaries/` directory
+1. **Base tiles** — OSM data (roads, water, buildings) generated by Planetiler from `.osm.pbf`
+2. **Boundary tiles** — admin boundaries from `boundaries/` directory (PMTiles or PostGIS GeoJSON)
 
 ### Tenant Routing
-Nginx `map` directive translates `X-Tenant-ID` header -> Martin source name. Martin auto-discovers `.pmtiles` files from both `pmtiles/` and `boundaries/` directories. Source names match filenames (e.g., `kenya-detailed.pmtiles` -> source `kenya-detailed`).
+Nginx `map` directive translates `X-Tenant-ID` header → Martin source name. Martin auto-discovers `.pmtiles` files from both `pmtiles/` and `boundaries/` directories.
 
-**Important**: Nginx source names must match Martin's auto-discovered names exactly. Country tiles have `-detailed` suffix (e.g., `kenya-detailed`), state tiles do not (e.g., `nigeria-jigawa`).
+**Important**: Country tiles have `-detailed` suffix (e.g., `kenya-detailed`), state tiles do not (e.g., `nigeria-jigawa`).
 
-### Generation Pipeline
+### PostGIS Schema (scripts/schema.sql)
 ```
-Geofabrik .osm.pbf -> Planetiler (--maxzoom=14, --exclude-layers=poi,housenumber)  -> <country>-detailed.pmtiles
-Geofabrik .osm.pbf -> Planetiler (--bounds=<state bbox>, --minzoom=6)              -> <country>-<state>.pmtiles
-nigeria-boundaries.geojson -> split-boundaries.js -> per-tenant boundary .geojson   (in boundaries/)
-HDX API -> download-hdx.ps1 -> hdx/<country>_adm1.geojson + hdx/<country>_adm2.geojson
+tenants        — tenant config (country_code, country_name, hdx_prefix, tile_source)
+adm_features   — HDX/OSM states + LGAs for all countries (geom GIST indexed)
+tenant_scope   — which LGAs/states each tenant operates in
+zones          — custom zone groupings per tenant (ST_Union geometry, pre-computed)
 ```
 
-### Tenant ID -> Source Name Mapping (Nginx)
+---
+
+## API Endpoints
+
+| Endpoint | Auth | Description |
+|----------|------|-------------|
+| `GET /tiles/{z}/{x}/{y}` | X-Tenant-ID | Base map vector tile (Martin PMTiles) |
+| `GET /boundaries/{z}/{x}/{y}` | X-Tenant-ID | OSM admin boundary vector tile (PMTiles) |
+| `GET /boundaries/geojson` | X-Tenant-ID | PostGIS GeoJSON — zones + states + ungrouped LGAs |
+| `GET /boundaries/hierarchy` | X-Tenant-ID | PostGIS hierarchy tree — country→state→zones→lgas |
+| `GET /boundaries/search?q=<query>` | X-Tenant-ID | PostGIS name search (indexed LIKE, 50 results) |
+| `GET /region?lat=&lon=` | X-Tenant-ID | Point-in-polygon → full hierarchy path (see below) |
+| `GET /admin/zones` | X-Tenant-ID | List tenant zones |
+| `POST /admin/zones` | X-Tenant-ID | Create zone (ST_Union geometry computed on insert) |
+| `PUT /admin/zones/:id` | X-Tenant-ID | Update zone name/color/members |
+| `DELETE /admin/zones/:id` | X-Tenant-ID | Delete zone (LGAs return to ungrouped automatically) |
+| `GET /health` | None | Health probe |
+| `GET /catalog` | None (port 3000) | Martin source list |
+
+### /region response shape
+```json
+{
+  "found": true,
+  "matched_level": "zone",
+  "country": { "pcode": "KE", "name": "Kenya" },
+  "state":   { "pcode": "KE004", "name": "Tana River" },
+  "zone":    { "pcode": "KE004-Z01", "name": "Zone 1", "color": "#3b82f6" },
+  "lga":     { "pcode": "KE004019", "name": "Galole" }
+}
+```
+`zone` is present only when `matched_level === "zone"`. For raw LGA hits, only `country + state + lga` are returned.
+
+### /boundaries/hierarchy cache
+Cached in `ngx.shared.hierarchy_cache` (8MB, keyed by tenant_id, 24h TTL).
+Invalidated on zone write (POST/PUT/DELETE /admin/zones).
+**`openresty -s reload` does NOT clear ngx.shared — must `docker restart tileserver_nginx_1`.**
+
+### Browser cache / Vary header
+All GeoJSON and hierarchy responses include `Vary: X-Tenant-ID` and `Cache-Control: public, max-age=86400`.
+Vue FE appends `?t=${tenantId}` to all GeoJSON/hierarchy URLs to make per-tenant URLs unique (prevents browser serving one tenant's cached response to another).
+
+---
+
+## Tenant ID → Source Name Mapping
 
 | Tenant ID | Program | Nginx Source Name | PMTiles File |
 |-----------|---------|-------------------|-------------|
@@ -114,238 +104,209 @@ HDX API -> download-hdx.ps1 -> hdx/<country>_adm1.geojson + hdx/<country>_adm2.g
 | 17 | Espoir CAR | central-african-republic-detailed | central-african-republic-detailed.pmtiles |
 | 18 | Jigawa Unite | nigeria-jigawa | nigeria-jigawa.pmtiles |
 
-### Boundary Source Mapping (Nginx)
-
-Nginx also maps tenant sources to boundary source names for the `/boundaries/{z}/{x}/{y}` endpoint:
-- Country tiles -> `<country>-boundaries` (e.g., `kenya-detailed` -> `kenya-boundaries`)
-- Indian states -> `india-boundaries`
-- Nigerian states -> per-tenant name (e.g., `nigeria-lagos` -> `nigeria-lagos-boundaries`)
-
-A third map (`$hdx_prefix`) routes tenants to their HDX country prefix for the GeoJSON/search Lua endpoints:
-- `kenya-detailed` -> `kenya`, all Nigeria state tenants -> `nigeria`, Rwanda/India -> `""` (not available)
+---
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
-| `tileserver/nginx-tenant-proxy.conf` | Tenant routing, boundary routing, HDX prefix map (Nginx map directives) |
-| `tileserver/martin-config.yaml` | Martin config for Docker (port 3000, scans /data/pmtiles + /data/boundaries) |
-| `tileserver/martin-config-windows.yaml` | Martin config for Windows dev (port 3001, scans pmtiles/ + boundaries/) |
-| `tileserver/docker-compose.tenant.yml` | Docker stack: Martin + Nginx (mounts pmtiles/, boundaries/, hdx/) |
-| `tileserver/lua/serve-geojson.lua` | Serves OSM or HDX boundary GeoJSON (`?type=hdx` param) |
-| `tileserver/lua/search-boundaries.lua` | Searches boundary names by query string (OSM or HDX) |
-| `tileserver/lua/origin-whitelist.lua` | Origin whitelist security check |
-| `scripts/ps1/generate-tenants.ps1` | Unified tenant tile generator (all 13 tenants, configurable profile) |
-| `scripts/ps1/generate-nigeria-tenants.ps1` | Nigeria-specific: regenerate state tiles from z6 (outputs to pmtiles\z6\) |
-| `scripts/ps1/generate-single.ps1` | Generate country-level detailed tiles |
-| `scripts/ps1/generate-states.ps1` | Generate state-level tiles (configurable profile/zoom) |
-| `scripts/ps1/generate-lagos-osun.ps1` | Legacy: generate combined Lagos+Osun tiles (tenant 3) |
-| `scripts/ps1/generate-all.ps1` | Generate all 7 country tiles |
-| `scripts/ps1/download-hdx.ps1` | Download HDX COD-AB GeoJSON for all countries into hdx/ |
-| `scripts/ps1/generate-hdx-boundaries.ps1` | Convert HDX GeoJSON -> PMTiles (tile inspector comparison layer) |
-| `scripts/split-boundaries.js` | Split nigeria-boundaries.geojson into per-tenant boundary GeoJSON files |
-| `test/tile-inspector.html` | Developer tile inspector: OSM/HDX source toggle, boundary search, feature explorer |
-| `test/test-tenant-tiles.html` | Browser debug page: test all tenants, view request logs |
+| `tileserver/nginx-tenant-proxy.conf` | Tenant routing, CORS, Lua locations, shared dict config |
+| `tileserver/docker-compose.tenant.yml` | Docker stack: Martin + Nginx + PostgreSQL |
+| `tileserver/martin-config.yaml` | Martin config (Docker, port 3000) |
+| `tileserver/martin-config-windows.yaml` | Martin config (Windows dev, port 3001) |
+| `tileserver/lua/pg-pool.lua` | pgmoon connection pool wrapper (trust auth, keepalive) |
+| `tileserver/lua/boundary-db.lua` | All PostGIS queries: geojson, hierarchy, search, region, zone |
+| `tileserver/lua/region-lookup.lua` | GET /region — PostGIS point-in-polygon, ngx.shared result cache |
+| `tileserver/lua/serve-geojson.lua` | GET /boundaries/geojson — PostGIS GeoJSON streaming |
+| `tileserver/lua/serve-hierarchy.lua` | GET /boundaries/hierarchy — PostGIS + ngx.shared cache |
+| `tileserver/lua/search-boundaries.lua` | GET /boundaries/search — PostGIS indexed LIKE |
+| `tileserver/lua/admin-zones.lua` | GET/POST/PUT/DELETE /admin/zones — zone CRUD |
+| `tileserver/lua/origin-whitelist.lua` | Origin whitelist + CORS headers |
+| `tileserver/lua/pgmoon/` | pgmoon Lua Postgres driver (vendored, 8 files, no luarocks) |
+| `scripts/schema.sql` | PostGIS schema (tenants, adm_features, tenant_scope, zones) |
+| `scripts/import-hdx-to-pg.js` | Node.js: HDX GeoJSON → PostgreSQL import |
+| `scripts/k6-region-stress.js` | k6 stress test: /region endpoint only |
+| `scripts/k6-all-endpoints.js` | k6 comprehensive: all 8 FE endpoints, 4 tenants, multi-tenant isolation |
+| `View/src/views/TileInspector.vue` | Tile inspector SPA view |
+| `View/src/views/ZoneManager.vue` | Zone manager: draw zones by clicking LGAs on map |
+| `View/src/components/BoundaryExplorer.vue` | Sidebar: tenant selector, search, hierarchy tree |
+| `View/src/composables/useTileInspector.ts` | Shared state: map, tenant, hierarchy, boundary data |
 
-## Directory Structure
+---
 
-### PMTiles (Base Map Tiles)
-```
-pmtiles/                          # Top-level: Martin auto-discovers all .pmtiles here
-  kenya-detailed.pmtiles          # Country tiles (z0-14)
-  uganda-detailed.pmtiles
-  liberia-detailed.pmtiles
-  rwanda-detailed.pmtiles
-  central-african-republic-detailed.pmtiles
-  nigeria-edo.pmtiles             # State tiles (z10-14 in top-level)
-  nigeria-lagos.pmtiles
-  nigeria-kwara.pmtiles
-  nigeria-bayelsa.pmtiles
-  nigeria-jigawa.pmtiles
-  nigeria-lagos-osun.pmtiles
-  india-andhrapradesh.pmtiles
-  india-manipur.pmtiles
-  z6/                             # Regenerated Nigeria tiles with z6-14 (wider zoom range)
-    nigeria-edo.pmtiles
-    nigeria-lagos.pmtiles
-    nigeria-kwara.pmtiles
-    nigeria-bayelsa.pmtiles
-    nigeria-jigawa.pmtiles
-    nigeria-lagos-osun.pmtiles
+## Common Commands
+
+### Setup & Tile Generation
+Scripts are grouped: **Bash** in `scripts/sh/`, **PowerShell** in `scripts/ps1/`.
+
+**PowerShell (Windows):**
+```powershell
+.\scripts\ps1\setup.ps1
+.\scripts\ps1\generate-single.ps1 <country>
+.\scripts\ps1\generate-all.ps1
+.\scripts\ps1\generate-states.ps1 <profile> <country> <State>
+.\scripts\ps1\generate-tenants.ps1
+.\scripts\ps1\generate-tenants.ps1 -Tenant 11 -Profile full
+.\scripts\ps1\generate-nigeria-tenants.ps1        # Nigeria z6-14 (outputs pmtiles\z6\)
 ```
 
-### Boundaries (Admin Boundary Tiles)
-```
-boundaries/
-  nigeria-boundaries.pmtiles          # Valid PMTiles for Nigeria admin boundaries (OSM-derived)
-  nigeria-boundaries.pmtiles.bak      # Corrupt original (InvalidMagicNumber -- do not use)
-  nigeria-boundaries.geojson          # Source GeoJSON (all Nigeria states + LGAs from OSM)
-  nigeria-edo-boundaries.geojson      # Per-tenant split GeoJSON (generated by split-boundaries.js)
-  nigeria-lagos-boundaries.geojson
-  nigeria-kwara-boundaries.geojson
-  nigeria-bayelsa-boundaries.geojson
-  nigeria-jigawa-boundaries.geojson
-  nigeria-lagos-osun-boundaries.geojson
+**Bash (macOS/Linux):**
+```bash
+./scripts/sh/setup.sh
+./scripts/sh/generate-single.sh <country>
+./scripts/sh/generate-all.sh
+./scripts/sh/generate-states.sh <profile> <country> [state1] ...
+./scripts/sh/generate-tenants.sh
 ```
 
-### HDX COD-AB (Boundary Source Data — CC BY-IGO)
-```
-hdx/
-  nigeria_adm1.geojson                # States (37 features)
-  nigeria_adm2.geojson                # LGAs (774 features)
-  kenya_adm1.geojson                  # Counties (47 features)
-  kenya_adm2.geojson                  # Sub-counties (290 features)
-  uganda_adm1.geojson / _adm2.geojson
-  liberia_adm1.geojson / _adm2.geojson
-  central-african-republic_adm1.geojson / _adm2.geojson
-  # Rwanda and India excluded -- no HDX COD-AB package available
+### Boundary Data
+```powershell
+.\scripts\ps1\download-hdx.ps1                    # Download HDX COD-AB GeoJSON -> hdx/
+.\scripts\ps1\download-hdx.ps1 -Country kenya
+node scripts/import-hdx-to-pg.js                  # Import HDX GeoJSON -> PostgreSQL
+node scripts/split-boundaries.js                  # Split nigeria-boundaries.geojson per-tenant
 ```
 
-### OSM Source Data
-```
-osm-data/
-  <country>-latest.osm.pbf           # 7 files: nigeria, kenya, uganda, liberia, rwanda,
-                                      #          central-african-republic, india
+### Running the Server (Docker)
+```bash
+docker compose -f tileserver/docker-compose.tenant.yml up -d     # Start full stack
+docker compose -f tileserver/docker-compose.tenant.yml restart
+docker compose -f tileserver/docker-compose.tenant.yml logs martin
+sudo docker restart tileserver_nginx_1            # Clears ngx.shared caches
+sudo docker exec tileserver_nginx_1 openresty -s reload   # Hot-reload (keeps ngx.shared)
 ```
 
-**IMPORTANT**: All .pmtiles files must be in the top-level `pmtiles/` directory for Martin to discover them. Files in subdirectories (z6/, terrain/) are NOT auto-discovered. After generation to subdirectories, copy to top-level to activate.
+### Testing
+```bash
+# Health / catalog
+curl -H "X-Tenant-ID: 11" http://localhost:8080/health
+curl http://localhost:3000/catalog
+
+# Region — new hierarchy response
+curl -H "X-Tenant-ID: 1" "http://localhost:8080/region?lat=-1.80&lon=40.10"
+# -> { found, matched_level:"zone", country, state, zone, lga }
+
+# Boundaries
+curl -H "X-Tenant-ID: 1" "http://localhost:8080/boundaries/hierarchy?t=1"
+curl -H "X-Tenant-ID: 1" "http://localhost:8080/boundaries/geojson?t=1"
+curl -H "X-Tenant-ID: 1" "http://localhost:8080/boundaries/search?q=nairo"
+
+# Zone admin
+curl -H "X-Tenant-ID: 1" http://localhost:8080/admin/zones
+
+# k6 load test (run on GCE VM for localhost speed)
+k6 run --env BASE=http://localhost:8080 scripts/k6-all-endpoints.js
+```
+
+### Deploy to GCP
+```bash
+# Deploy Lua files
+gcloud compute scp --zone=us-central1-a tileserver/lua/boundary-db.lua \
+  martin-tileserver:/home/omarlakhdhar_gmail_com/rust-map-server/tileserver/lua/
+
+# Build + deploy Vue app (ALWAYS set production env vars)
+cd View
+VITE_PROXY_URL=http://35.239.86.115:8080 VITE_MARTIN_URL=http://35.239.86.115:3000 npm run build
+gcloud compute scp --zone=us-central1-a --recurse dist/index.html dist/assets \
+  martin-tileserver:/home/omarlakhdhar_gmail_com/rust-map-server/View/dist/
+
+# Restart nginx (required after Lua changes; also clears ngx.shared)
+gcloud compute ssh martin-tileserver --zone=us-central1-a \
+  --command="sudo docker restart tileserver_nginx_1"
+```
+
+---
+
+## Boundary Data
+
+### Current State
+- **Nigeria, Kenya, Uganda, Liberia, CAR**: HDX COD-AB data imported into PostgreSQL (`adm_features`)
+- **Rwanda**: OSM-derived (admin_level 4=provinces, 6=districts) imported via `/tmp/import_rwanda.py`; 5 provinces (RW01-RW05), 30 districts (RWD001-RWD031) for tenant 12
+- **India**: No HDX COD-AB; OSM only (partial)
+- **Zones**: Per-tenant custom groupings in `zones` table, geometry is pre-computed `ST_Union` of constituent LGAs
+
+### Hierarchy exclusion rule
+LGAs that belong to a zone are excluded from the individual LGA list in both `/boundaries/geojson` and `/boundaries/hierarchy`. A zone's constituent pcodes are stored in `zones.constituent_pcodes TEXT[]`.
+
+### Known Issues
+- `boundaries/nigeria-boundaries.pmtiles.bak` — corrupt file, renamed to prevent Martin crash. **Do not rename back.**
+- Martin v0.14.2 crashes with `InvalidMagicNumber` if any corrupt `.pmtiles` exists in scanned directories.
+- Rwanda has 1 orphaned district (Bugabira) with `parent_pcode = NULL` (DRC border artifact). `serve-hierarchy.lua` guards against `nil` table keys for orphaned features.
+
+### Licensing
+- **OSM** (production boundaries): ODbL — commercial use permitted, attribution required
+- **HDX COD-AB** (`hdx/` directory): CC BY-IGO — commercial use permitted, attribution required
+
+---
+
+## Vue App
+
+Two views:
+1. **Tile Inspector** (`/`) — map with sidebar: tenant selector, boundary search, hierarchy tree, layer toggle, tile feature explorer
+2. **Zone Manager** (`/admin/zones`) — create custom zones by clicking LGA polygons on map
+
+**Build:** Always use production env vars or Chrome blocks requests (Private Network Access):
+```bash
+cd View
+VITE_PROXY_URL=http://35.239.86.115:8080 VITE_MARTIN_URL=http://35.239.86.115:3000 npm run build
+# Verify: grep -o "localhost:8080\|35.239.86.115" dist/assets/index-*.js | uniq -c
+```
+
+The tenant selector is in the **sidebar** (BoundaryExplorer.vue), not the top bar.
+
+---
+
+## Adding a New Tenant
+
+1. Generate tiles: `generate-single.ps1 <country>` or `generate-states.ps1`
+2. Place `.pmtiles` in `pmtiles/` (top level — subdirectories not auto-discovered)
+3. Add to `tileserver/nginx-tenant-proxy.conf`: `$tenant_source`, `$boundary_source`, `$hdx_prefix` maps
+4. Add tenant row to `tenants` table in PostgreSQL
+5. Import boundary data via `import-hdx-to-pg.js` or country-specific import script
+6. Add `tenant_scope` rows for the tenant's LGAs
+7. Restart Docker; verify `curl http://localhost:3000/catalog`
+
+---
 
 ## Zoom Level Coverage
 
 | Tile Type | Min Zoom | Max Zoom | Notes |
 |-----------|----------|----------|-------|
-| Country detailed | 0 | 14 | Full country, all zoom levels |
-| State (old, z10) | 10 | 14 | Only visible when zoomed in close |
-| State (new, z6) | 6 | 14 | Full state visible on initial load |
+| Country detailed | 0 | 14 | Full country |
+| State (new, z6) | 6 | 14 | Full state visible at initial load |
+| State (old, z10) | 10 | 14 | Blank at lower zooms — regenerate with z6 |
 
-State tiles at z10-14 cause blank maps when zoomed out. The `generate-nigeria-tenants.ps1` script regenerates from z6. After generation, copy from `pmtiles\z6\` to `pmtiles\` to activate.
+---
 
 ## Conventions
 
-- PowerShell uses `$ErrorActionPreference = "Stop"` for fail-fast behavior
-- File naming: `<country>-detailed.pmtiles` (country), `<country>-<state>.pmtiles` (state)
-- HDX files: `hdx/<country>_adm1.geojson` (states) + `hdx/<country>_adm2.geojson` (LGAs/districts)
-- HDX property names: `adm1_name` (state), `adm2_name` (LGA), `adm1_pcode`, `adm2_pcode`
-- Planetiler on Windows uses `--storage=ram` instead of `--storage=mmap`
-- Scripts compute paths relative to their own location, not CWD
-- **Never delete/overwrite existing tile data** -- new generations go to separate directories
-- PowerShell scripts must use ASCII only (no Unicode symbols) to avoid encoding issues
-- Memory allocation per country: liberia/rwanda/car=2GB, uganda/kenya=4GB, nigeria=6GB, india=8GB
-- Tile generation profiles: `full` (all layers), `terrain` (no roads/buildings), `terrain-roads` (no buildings), `minimal` (water+places only)
+- Country tile filenames: `<country>-detailed.pmtiles`, state tiles: `<country>-<state>.pmtiles`
+- HDX files: `hdx/<country>_adm1.geojson` / `_adm2.geojson`; properties: `adm1_pcode`, `adm1_name`, `adm2_pcode`, `adm2_name`
+- Zone pcodes: `{state_pcode}-Z{nn}` e.g. `KE004-Z01`
+- Planetiler on Windows: `--storage=ram` (not `--storage=mmap`)
+- Never delete/overwrite existing tile data — new generations go to separate directories
+- PowerShell scripts: ASCII only (no Unicode), `$ErrorActionPreference = "Stop"`
+- Memory per country: liberia/rwanda/car=2GB, uganda/kenya=4GB, nigeria=6GB, india=8GB
 
-## Boundary Data
-
-### Current State
-- **Nigeria**: `boundaries/nigeria-boundaries.pmtiles` exists and works (OSM-derived via split-boundaries.js pipeline)
-- **Other countries**: OSM boundary GeoJSON files exist in `boundaries/`; PMTiles may or may not exist
-- **HDX**: GeoJSON files for 5 countries downloaded into `hdx/` — served directly by Lua (no PMTiles needed for GeoJSON endpoint)
-- Per-tenant boundary GeoJSON files exist for all 6 Nigeria tenants in `boundaries/`
-
-### Known Issues
-- `boundaries/nigeria-boundaries.pmtiles.bak` is a corrupt file (invalid PMTiles magic number). It was renamed to `.bak` to prevent Martin from crashing. **Do not rename it back.**
-- Martin v0.14.2 crashes with `InvalidMagicNumber` error if any corrupt `.pmtiles` file exists in a scanned directory.
-
-### Licensing
-- **OSM** (production boundaries): ODbL — commercial use permitted, attribution required
-- **HDX COD-AB** (`hdx/` directory): CC BY-IGO — commercial use permitted, attribution required
-- Rwanda and India have no HDX COD-AB package; OSM is the only boundary source for those countries
-
-### Boundary Generation Pipeline
-```
-# OSM boundary tiles
-OSM data -> extract admin boundaries -> <country>-boundaries.geojson
-  -> split-boundaries.js (Nigeria only) -> per-tenant .geojson files (boundaries/)
-  -> tippecanoe (Docker: ghcr.io/felt/tippecanoe) -> .pmtiles
-
-# HDX GeoJSON endpoint (no PMTiles needed)
-HDX CKAN API -> download-hdx.ps1 -> hdx/<country>_adm1.geojson + _adm2.geojson
-  -> served live by serve-geojson.lua (GET /boundaries/geojson?type=hdx)
-
-# HDX PMTiles (tile inspector comparison layer only)
-hdx/<country>_adm1.geojson + _adm2.geojson
-  -> generate-hdx-boundaries.ps1 -> tippecanoe -> boundaries/<country>-boundaries-hdx.pmtiles
-```
-
-## API Endpoints
-
-| Endpoint | Auth | Description |
-|----------|------|-------------|
-| `GET /tiles/{z}/{x}/{y}` | X-Tenant-ID | Base map vector tile |
-| `GET /boundaries/{z}/{x}/{y}` | X-Tenant-ID | OSM admin boundary vector tile (PMTiles) |
-| `GET /boundaries/geojson` | X-Tenant-ID | OSM boundary GeoJSON (streamed, gzip compressed) |
-| `GET /boundaries/geojson?type=hdx` | X-Tenant-ID | HDX COD-AB GeoJSON — adm1+adm2 merged FeatureCollection |
-| `GET /boundaries/search?q=<query>` | X-Tenant-ID | Search OSM boundary names (case-insensitive partial match) |
-| `GET /boundaries/search?q=<query>&type=hdx` | X-Tenant-ID | Search HDX names (adm1_name / adm2_name) |
-| `GET /health` | None | Health probe |
-| `GET /catalog` | None (port 3000) | Martin source list |
-
-## Adding a New Tenant
-
-1. Generate tiles: `.\scripts\ps1\generate-single.ps1 <country>` or `.\scripts\ps1\generate-states.ps1 <profile> <country> <state>`
-2. Place .pmtiles file in `pmtiles/` (top level, NOT subdirectory)
-3. Add tenant ID -> source mapping in `tileserver/nginx-tenant-proxy.conf`
-   - In `$tenant_source` map: `"<id>" "<source-name>";`
-   - In `$boundary_source` map: `"<source-name>" "<boundary-source>";`
-   - In `$hdx_prefix` map: `"<source-name>" "<hdx-country-prefix>";` (or `""` if no HDX data)
-4. No changes needed to Martin configs (auto-discovers from pmtiles/ and boundaries/)
-5. Restart Docker: `docker compose -f tileserver/docker-compose.tenant.yml restart`
-6. Verify: `curl.exe http://localhost:3000/catalog` (source should appear)
-7. Test: open `test/test-tenant-tiles.html` and select the new tenant
-
-## FE Integration
-
-The FE connects via MapLibre GL JS with `X-Tenant-ID` header:
-
-```javascript
-const map = new maplibregl.Map({
-  container: "map",
-  style: { version: 8, sources: { "base-tiles": {
-    type: "vector",
-    tiles: ["http://localhost:8080/tiles/{z}/{x}/{y}"],
-    maxzoom: 14,
-  }}, layers: [/* style layers */] },
-  transformRequest: (url) => {
-    if (url.includes(TILE_SERVER_URL)) {
-      return { url, headers: { "X-Tenant-ID": String(tenantId) } };
-    }
-  },
-});
-
-// Fetch HDX boundary GeoJSON (adm1 + adm2 merged)
-const geojson = await fetch(`${TILE_SERVER_URL}/boundaries/geojson?type=hdx`, {
-  headers: { "X-Tenant-ID": String(tenantId) }
-}).then(r => r.json());
-
-// Search boundary names
-const results = await fetch(`${TILE_SERVER_URL}/boundaries/search?q=lagos&type=hdx`, {
-  headers: { "X-Tenant-ID": String(tenantId) }
-}).then(r => r.json());
-// -> { query, type, count, results: [{ level, adm1_name, adm2_name, adm1_pcode, adm2_pcode }] }
-```
-
-## Supported Countries
-
-Liberia, Nigeria (Lagos/Edo/Bayelsa/Jigawa/Kwara/Osun states), Kenya, Uganda, Rwanda, Central African Republic, India (Andhra Pradesh/Manipur) -- 7 countries, 13 tenant IDs.
-
-HDX COD-AB coverage: Nigeria, Kenya, Uganda, Liberia, CAR. Rwanda and India excluded (no COD-AB package).
+---
 
 ## Troubleshooting
 
-### Martin crashes on startup with `InvalidMagicNumber`
-A `.pmtiles` file in `pmtiles/` or `boundaries/` is corrupt. Check Docker logs for the offending filename and rename/remove it. Martin v0.14.2 treats any unreadable `.pmtiles` as fatal.
-
-### Blank map when zoomed out (state tiles)
-State tiles generated at z10-14 show nothing at lower zoom levels. Regenerate with `generate-nigeria-tenants.ps1` (uses z6-14) and copy from `pmtiles\z6\` to `pmtiles\`.
-
-### Tiles not appearing in Martin catalog
-Ensure `.pmtiles` files are in the top-level `pmtiles/` or `boundaries/` directory. Files in subdirectories (z6/, terrain/) are NOT auto-discovered by Martin.
-
-### `/boundaries/geojson?type=hdx` returns 404 GEOJSON_NOT_FOUND
-The `hdx/<country>_adm1.geojson` or `_adm2.geojson` files are missing. Run `.\scripts\ps1\download-hdx.ps1`.
+| Problem | Cause | Fix |
+|---------|-------|-----|
+| Martin `InvalidMagicNumber` on startup | Corrupt `.pmtiles` in scanned dir | Rename to `.bak` |
+| Blank map zoomed out (state tiles) | Tiles start at z10 | Regenerate with z6, copy to `pmtiles/` |
+| Source not in Martin catalog | File in subdirectory | Move to top-level `pmtiles/` |
+| `/boundaries/geojson` returns 404 | Missing HDX or no PostGIS data | Run `import-hdx-to-pg.js` |
+| Hierarchy returns stale data after zone change | ngx.shared not cleared | `docker restart tileserver_nginx_1` |
+| `table index is nil` in serve-hierarchy.lua | Orphaned feature with NULL parent_pcode | Guard: `if l.parent_pcode then` |
+| Vue app "blocked:other" CORS error | Build pointed at localhost | Rebuild with `VITE_PROXY_URL=http://35.239.86.115:8080` |
+| Tenant switch keeps showing wrong country | Browser cache / race condition | `?t=${tenantId}` on all API URLs; `loadVersion` counter in Vue |
 
 ## Prerequisites
 
-- **Java 17+**: Planetiler tile generation (`java -version`)
-- **Node.js**: split-boundaries.js, test pages
-- **Docker + Docker Compose**: Production stack (Martin + Nginx)
-- **Martin**: Windows dev: included as `tileserver/martin.exe` or use `run-martin.ps1`
+- **Java 17+**: Planetiler tile generation
+- **Node.js**: import scripts, split-boundaries.js
+- **Docker + Docker Compose**: Production stack (Martin + Nginx + PostgreSQL)
+- **k6**: Load testing (`/usr/local/bin/k6` on GCE VM)
+- **Martin** (Windows dev): `tileserver/martin.exe` or `run-martin.ps1`

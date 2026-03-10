@@ -17,7 +17,7 @@ import LayerControl from '../components/LayerControl.vue';
 .inspector-root {
   display: grid;
   grid-template-columns: 360px 1fr;
-  height: calc(100vh - 48px);
+  height: 100vh;
   background: #020617;
   color: #e5e7eb;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',

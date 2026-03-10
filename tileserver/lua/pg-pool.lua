@@ -12,7 +12,7 @@ local CONFIG = {
     port     = tonumber(os.getenv("PGPORT") or "5432"),
     database = os.getenv("PGDATABASE") or "mapserver",
     user     = os.getenv("PGUSER")     or "mapserver",
-    password = os.getenv("PGPASSWORD") or "mapserver",
+    -- no password needed: postgres uses trust auth on Docker internal network
 }
 
 -- Execute a SQL query with optional positional parameters ($1, $2, ...).
@@ -26,7 +26,7 @@ function M.exec(sql, params)
 
     local result, err2
     if params and #params > 0 then
-        result, err2 = pg:query(sql, params)
+        result, err2 = pg:query(sql, table.unpack(params))
     else
         result, err2 = pg:query(sql)
     end

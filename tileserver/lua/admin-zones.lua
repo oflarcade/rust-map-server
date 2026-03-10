@@ -1,7 +1,7 @@
 -- admin-zones.lua
 -- Zone CRUD for the admin UI.
 -- All operations identify the tenant via X-Tenant-ID header (never request body).
--- All write operations also require X-Admin-Token header.
+-- Access is restricted by origin whitelist (origin-whitelist.lua runs first).
 --
 -- Routes (dispatched internally):
 --   GET    /admin/zones          -> list_zones(tenant_id)
@@ -16,26 +16,6 @@ local tenant_id = tonumber(ngx.var.http_x_tenant_id)
 local method    = ngx.req.get_method()
 local uri       = ngx.var.uri
 local zone_id   = tonumber(uri:match("^/admin/zones/(%d+)$"))
-
--- ---------------------------------------------------------------------------
--- Admin token check (required for all write operations)
--- ---------------------------------------------------------------------------
-local function check_admin_token()
-    local token    = ngx.req.get_headers()["X-Admin-Token"]
-    local expected = os.getenv("ADMIN_TOKEN")
-    if not expected or expected == "" then
-        ngx.log(ngx.ERR, "ADMIN_TOKEN env var not set")
-        ngx.status = 500
-        ngx.say('{"error":"Server misconfiguration","code":"NO_ADMIN_TOKEN"}')
-        return false
-    end
-    if not token or token ~= expected then
-        ngx.status = 401
-        ngx.say('{"error":"Unauthorized","code":"INVALID_ADMIN_TOKEN"}')
-        return false
-    end
-    return true
-end
 
 -- ---------------------------------------------------------------------------
 -- GET /admin/zones  — list all zones for this tenant
@@ -75,6 +55,8 @@ local function list_zones()
     end
 
     ngx.header["Content-Type"] = "application/json"
+    -- force array encoding even when empty (cjson encodes {} as object by default)
+    if #zones == 0 then zones = cjson.empty_array end
     ngx.say(cjson.encode({ tenant_id = tenant_id, zones = zones }))
 end
 
@@ -333,13 +315,10 @@ ngx.header["Content-Type"] = "application/json"
 if method == "GET" and not zone_id then
     list_zones()
 elseif method == "POST" and not zone_id then
-    if not check_admin_token() then return end
     create_zone()
 elseif method == "PUT" and zone_id then
-    if not check_admin_token() then return end
     update_zone(zone_id)
 elseif method == "DELETE" and zone_id then
-    if not check_admin_token() then return end
     delete_zone(zone_id)
 else
     ngx.status = 405

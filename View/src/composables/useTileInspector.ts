@@ -1,7 +1,8 @@
 import { computed, reactive, ref, watch } from 'vue';
 import maplibregl, { type Map } from 'maplibre-gl';
-import { DEFAULT_MARTIN_URL, normalizeBaseUrl } from '../config/urls';
-import { TENANTS, type TenantConfig, HIERARCHY_MAP } from '../config/tenants';
+import { DEFAULT_MARTIN_URL, DEFAULT_PROXY_URL, normalizeBaseUrl } from '../config/urls';
+import { TENANTS, type TenantConfig } from '../config/tenants';
+import { buildInspectorStyle, loadMartinTileMetadata, resolveBoundarySourceKey } from '../map/inspectorStyle';
 
 // ---------------------------------------------------------------------------
 // Exported interfaces
@@ -31,6 +32,14 @@ export interface HierarchyLGA {
   center_lon?: number;
 }
 
+export interface HierarchyZone {
+  zone_pcode: string;
+  zone_name: string;
+  color?: string;
+  parent_pcode: string;
+  constituent_pcodes: string[];
+}
+
 export interface HierarchyState {
   pcode: string;
   name: string;
@@ -38,6 +47,7 @@ export interface HierarchyState {
   center_lat?: number;
   center_lon?: number;
   lgas: HierarchyLGA[];
+  zones?: HierarchyZone[];
 }
 
 export interface HierarchyData {
@@ -90,6 +100,7 @@ const boundaryHierarchy = ref<HierarchyData | null>(null);
 const mapContainer = ref<HTMLDivElement | null>(null);
 
 let map: Map | null = null;
+let inspectorPopup: maplibregl.Popup | null = null;
 const baseMeta = reactive<Record<string, any>>({});
 const boundaryMeta = reactive<Record<string, any>>({});
 
@@ -168,20 +179,8 @@ export function useTileInspector() {
 
   // -- Internal helpers -----------------------------------------------------
 
-  async function fetchJson<T = any>(url: string): Promise<T> {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`${res.status} ${url}`);
-    return (await res.json()) as T;
-  }
-
   function resetMeta(target: Record<string, any>) {
     Object.keys(target).forEach((k) => delete target[k]);
-  }
-
-  function getSourceLayer(meta: any, preferred: string): string {
-    const layers = Array.isArray(meta.vector_layers) ? meta.vector_layers : [];
-    const found = layers.find((l: any) => l && l.id === preferred);
-    return found ? found.id : '';
   }
 
   function bboxFromGeometry(
@@ -213,198 +212,6 @@ export function useTileInspector() {
 
   // -- Style builder (HDX filters) ------------------------------------------
 
-  function buildStyle(
-    base: any,
-    boundary: any,
-    baseUrl: string,
-    boundaryUrl: string,
-  ): maplibregl.StyleSpecification {
-    const styleLayers: maplibregl.LayerSpecification[] = [];
-    const present = (name: string) => getSourceLayer(base, name);
-
-    styleLayers.push({
-      id: 'background',
-      type: 'background',
-      paint: { 'background-color': '#f5f3ee' },
-    });
-
-    if (present('water')) {
-      styleLayers.push({
-        id: 'base-water',
-        type: 'fill',
-        source: 'base',
-        'source-layer': 'water',
-        paint: { 'fill-color': '#a0cfdf' },
-      } as any);
-    }
-
-    if (present('landcover')) {
-      styleLayers.push({
-        id: 'base-landcover',
-        type: 'fill',
-        source: 'base',
-        'source-layer': 'landcover',
-        paint: { 'fill-color': '#d6ead1', 'fill-opacity': 0.55 },
-      } as any);
-    }
-
-    if (present('landuse')) {
-      styleLayers.push({
-        id: 'base-landuse',
-        type: 'fill',
-        source: 'base',
-        'source-layer': 'landuse',
-        paint: { 'fill-color': '#ece9d8', 'fill-opacity': 0.45 },
-      } as any);
-    }
-
-    if (present('transportation')) {
-      styleLayers.push({
-        id: 'base-roads',
-        type: 'line',
-        source: 'base',
-        'source-layer': 'transportation',
-        paint: { 'line-color': '#888', 'line-width': 1 },
-      } as any);
-      styleLayers.push({
-        id: 'base-roads-major',
-        type: 'line',
-        source: 'base',
-        'source-layer': 'transportation',
-        filter: ['in', 'class', 'primary', 'secondary', 'trunk', 'motorway'],
-        paint: { 'line-color': '#f59e0b', 'line-width': 2 },
-      } as any);
-    }
-
-    if (present('building')) {
-      styleLayers.push({
-        id: 'base-buildings',
-        type: 'fill',
-        source: 'base',
-        'source-layer': 'building',
-        minzoom: 12,
-        paint: { 'fill-color': '#d7c6a7', 'fill-opacity': 0.65 },
-      } as any);
-    }
-
-    if (present('place')) {
-      styleLayers.push({
-        id: 'base-place-label',
-        type: 'symbol',
-        source: 'base',
-        'source-layer': 'place',
-        layout: {
-          'text-field': ['coalesce', ['get', 'name:latin'], ['get', 'name']],
-          'text-size': 11,
-        },
-        paint: {
-          'text-color': '#2c2c2c',
-          'text-halo-color': '#fff',
-          'text-halo-width': 1.2,
-        },
-      } as any);
-    }
-
-    // -- Boundary layers (HDX property-based filters) -----------------------
-
-    const boundaryLayer =
-      getSourceLayer(boundary, 'boundaries') ||
-      (Array.isArray(boundary.vector_layers) &&
-        boundary.vector_layers[0]?.id) ||
-      '';
-
-    if (boundaryLayer) {
-      const lgaFilter: any = ['has', 'adm2_name'];
-      const stateFilter: any = ['!', ['has', 'adm2_name']];
-
-      styleLayers.push({
-        id: 'boundary-fill',
-        type: 'fill',
-        source: 'boundary',
-        'source-layer': boundaryLayer,
-        filter: lgaFilter,
-        paint: { 'fill-color': '#60a5fa', 'fill-opacity': 0.15 },
-      } as any);
-
-      styleLayers.push({
-        id: 'boundary-state-line',
-        type: 'line',
-        source: 'boundary',
-        'source-layer': boundaryLayer,
-        filter: stateFilter,
-        paint: { 'line-color': '#2563eb', 'line-width': 2 },
-      } as any);
-
-      styleLayers.push({
-        id: 'boundary-lga-line',
-        type: 'line',
-        source: 'boundary',
-        'source-layer': boundaryLayer,
-        filter: lgaFilter,
-        paint: { 'line-color': '#6366f1', 'line-width': 1 },
-      } as any);
-
-      styleLayers.push({
-        id: 'boundary-state-label',
-        type: 'symbol',
-        source: 'boundary',
-        'source-layer': boundaryLayer,
-        filter: stateFilter,
-        layout: {
-          'text-field': ['coalesce', ['get', 'adm1_name'], ['get', 'name']],
-          'text-size': 13,
-          'text-max-width': 8,
-          'text-allow-overlap': false,
-        },
-        paint: {
-          'text-color': '#1e3a5f',
-          'text-halo-color': '#fff',
-          'text-halo-width': 1.5,
-        },
-      } as any);
-
-      styleLayers.push({
-        id: 'boundary-lga-label',
-        type: 'symbol',
-        source: 'boundary',
-        'source-layer': boundaryLayer,
-        minzoom: 8,
-        filter: lgaFilter,
-        layout: {
-          'text-field': ['coalesce', ['get', 'adm2_name'], ['get', 'name']],
-          'text-size': 10,
-          'text-max-width': 6,
-          'text-allow-overlap': false,
-        },
-        paint: {
-          'text-color': '#0f172a',
-          'text-halo-color': '#fff',
-          'text-halo-width': 1,
-        },
-      } as any);
-    }
-
-    return {
-      version: 8,
-      glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
-      sources: {
-        base: {
-          type: 'vector',
-          tiles: [baseUrl],
-          minzoom: base.minzoom ?? 0,
-          maxzoom: base.maxzoom ?? 14,
-        },
-        boundary: {
-          type: 'vector',
-          tiles: [boundaryUrl],
-          minzoom: boundary.minzoom ?? 0,
-          maxzoom: boundary.maxzoom ?? 14,
-        },
-      },
-      layers: styleLayers,
-    } as maplibregl.StyleSpecification;
-  }
-
   // -- Map interaction setup ------------------------------------------------
 
   function initMapInteractions() {
@@ -422,14 +229,26 @@ export function useTileInspector() {
       if (!e.features?.length) return;
       const feature = e.features[0];
       const props = (feature.properties ?? {}) as any;
-      const name = props.adm2_name || props.name || '';
+      const adm2 = props.adm2_name || '';
+      const adm1 = props.adm1_name || props.name || '';
+      const title = adm2 || adm1;
+      const subtitle = adm2 ? adm1 : '';
 
       if (feature.geometry) {
         const bounds = bboxFromGeometry(feature.geometry as GeoJSON.Geometry);
         map?.fitBounds(bounds, { padding: 60, maxZoom: 14 });
       }
-      if (name) {
-        boundarySummary.clickedLGA = String(name);
+      if (title) {
+        boundarySummary.clickedLGA = title;
+        if (inspectorPopup) { inspectorPopup.remove(); inspectorPopup = null; }
+        inspectorPopup = new maplibregl.Popup({ closeButton: true, maxWidth: '220px' })
+          .setLngLat(e.lngLat)
+          .setHTML(
+            `<div style="font-size:11px;text-transform:uppercase;color:#64748b;letter-spacing:0.06em;margin-bottom:3px">${subtitle ? 'LGA' : 'State'}</div>` +
+            `<div style="font-size:14px;font-weight:600;color:#0f172a;line-height:1.3">${title}</div>` +
+            (subtitle ? `<div style="font-size:11px;color:#475569;margin-top:3px">${subtitle}</div>` : '')
+          )
+          .addTo(map!);
       }
     });
   }
@@ -608,15 +427,12 @@ export function useTileInspector() {
   }
 
   async function loadHierarchy(): Promise<void> {
-    const slug = HIERARCHY_MAP[selectedTenantId.value];
-    if (!slug) {
-      boundaryHierarchy.value = null;
-      return;
-    }
+    const PROXY = normalizeBaseUrl(DEFAULT_PROXY_URL);
     try {
-      boundaryHierarchy.value = await fetchJson<HierarchyData>(
-        `/hdx/${slug}-hierarchy.json`,
-      );
+      const res = await fetch(`${PROXY}/boundaries/hierarchy?t=${selectedTenantId.value}`, {
+        headers: { 'X-Tenant-ID': selectedTenantId.value },
+      });
+      boundaryHierarchy.value = res.ok ? await res.json() : null;
     } catch {
       boundaryHierarchy.value = null;
     }
@@ -624,23 +440,15 @@ export function useTileInspector() {
 
   async function reloadTenant(): Promise<void> {
     const tenant = currentTenant.value;
-    const base = normalizeBaseUrl(DEFAULT_MARTIN_URL);
-
     resetMeta(baseMeta);
     resetMeta(boundaryMeta);
 
-    Object.assign(baseMeta, await fetchJson<any>(`${base}/${tenant.source}`).catch(() => ({})));
+    const { baseMeta: b, boundaryMeta: bb, baseUrl, boundaryUrl } =
+      await loadMartinTileMetadata(tenant, DEFAULT_MARTIN_URL);
+    Object.assign(baseMeta, b);
+    Object.assign(boundaryMeta, bb);
 
-    const boundarySourceKey = tenant.hdxBoundarySource ?? tenant.boundarySource;
-    try {
-      Object.assign(boundaryMeta, await fetchJson<any>(`${base}/${boundarySourceKey}`));
-    } catch {
-      Object.assign(boundaryMeta, { vector_layers: [], bounds: null });
-    }
-
-    const baseTileUrl = `${base}/${tenant.source}/{z}/{x}/{y}`;
-    const boundaryTileUrl = `${base}/${boundarySourceKey}/{z}/{x}/{y}`;
-    const style = buildStyle(baseMeta, boundaryMeta, baseTileUrl, boundaryTileUrl);
+    const style = buildInspectorStyle(baseMeta, boundaryMeta, baseUrl, boundaryUrl);
 
     if (map) {
       map.remove();
@@ -683,7 +491,40 @@ export function useTileInspector() {
     await loadHierarchy();
   }
 
+  function flyToHierarchyItem(state: HierarchyState, lga?: HierarchyLGA): void {
+    if (!map) return;
+    if (lga && lga.center_lon != null && lga.center_lat != null) {
+      const lngLat: [number, number] = [lga.center_lon, lga.center_lat];
+      map.once('moveend', () => {
+        if (inspectorPopup) { inspectorPopup.remove(); inspectorPopup = null; }
+        inspectorPopup = new maplibregl.Popup({ closeButton: true, maxWidth: '220px' })
+          .setLngLat(lngLat)
+          .setHTML(
+            `<div style="font-size:11px;text-transform:uppercase;color:#64748b;letter-spacing:0.06em;margin-bottom:3px">LGA</div>` +
+            `<div style="font-size:14px;font-weight:600;color:#0f172a;line-height:1.3">${lga.name}</div>` +
+            `<div style="font-size:11px;color:#475569;margin-top:3px">${state.name}</div>`
+          )
+          .addTo(map!);
+      });
+      map.flyTo({ center: lngLat, zoom: Math.max(map.getZoom(), 9), duration: 600 });
+    } else if (state.center_lon != null && state.center_lat != null) {
+      const lngLat: [number, number] = [state.center_lon, state.center_lat];
+      map.once('moveend', () => {
+        if (inspectorPopup) { inspectorPopup.remove(); inspectorPopup = null; }
+        inspectorPopup = new maplibregl.Popup({ closeButton: true, maxWidth: '220px' })
+          .setLngLat(lngLat)
+          .setHTML(
+            `<div style="font-size:11px;text-transform:uppercase;color:#64748b;letter-spacing:0.06em;margin-bottom:3px">State</div>` +
+            `<div style="font-size:14px;font-weight:600;color:#0f172a;line-height:1.3">${state.name}</div>`
+          )
+          .addTo(map!);
+      });
+      map.flyTo({ center: lngLat, zoom: Math.max(map.getZoom(), 7), duration: 600 });
+    }
+  }
+
   function cleanup(): void {
+    if (inspectorPopup) { inspectorPopup.remove(); inspectorPopup = null; }
     if (map) {
       map.remove();
       map = null;
@@ -721,6 +562,7 @@ export function useTileInspector() {
     toggleControl,
     refreshBoundarySummary,
     zoomToName,
+    flyToHierarchyItem,
     highlightBoundary,
     highlight,
     loadHierarchy,

@@ -1,11 +1,19 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
-import { useTileInspector } from '../composables/useTileInspector';
+import { useRouter } from 'vue-router';
+import { useTileInspector, type HierarchyState, type HierarchyLGA } from '../composables/useTileInspector';
+import { TENANTS } from '../config/tenants';
+
+const router = useRouter();
 
 const {
+  selectedTenantId,
+  currentTenant,
   boundarySearch,
+  boundaryHierarchy,
   filteredHierarchy,
   highlightBoundary,
+  flyToHierarchyItem,
   highlight,
 } = useTileInspector();
 
@@ -23,17 +31,21 @@ function selectState(pcode: string, name: string) {
     expandedStates.value.add(pcode);
     activeHighlight.value = name;
     highlightBoundary(name);
+    // Fly to state using center coordinates from hierarchy
+    const state = boundaryHierarchy.value?.states.find((s) => s.pcode === pcode);
+    if (state) flyToHierarchyItem(state);
   }
   expandedStates.value = new Set(expandedStates.value);
 }
 
-function selectLga(name: string) {
+function selectLga(name: string, lga?: HierarchyLGA, state?: HierarchyState) {
   if (activeHighlight.value === name) {
     activeHighlight.value = null;
     highlightBoundary(null);
   } else {
     activeHighlight.value = name;
     highlightBoundary(name);
+    if (lga && state) flyToHierarchyItem(state, lga);
   }
 }
 
@@ -72,6 +84,20 @@ watch(boundarySearch, (q) => {
 
 <template>
   <aside class="boundary-explorer">
+    <!-- Tenant selector -->
+    <div class="tenant-section">
+      <div class="tenant-label">Tenant</div>
+      <select v-model="selectedTenantId" class="tenant-select">
+        <option v-for="t in TENANTS" :key="t.id" :value="t.id">
+          {{ t.id }} — {{ t.name }}
+        </option>
+      </select>
+      <div class="tenant-name">{{ currentTenant.name }}</div>
+      <button class="nav-btn" @click="router.push('/admin/zones')">
+        Manage Zones →
+      </button>
+    </div>
+
     <!-- Search -->
     <section class="section">
       <div class="search-wrap">
@@ -146,7 +172,7 @@ watch(boundarySearch, (q) => {
               class="tree-lga"
               :class="{ active: activeHighlight === lga.name }"
               :title="`${lga.name} (${lga.pcode})`"
-              @click="selectLga(lga.name)"
+              @click="selectLga(lga.name, lga, state)"
             >
               <span
                 class="tree-label"
@@ -157,6 +183,20 @@ watch(boundarySearch, (q) => {
                   ')'
                 "
               ></span>
+            </button>
+          </div>
+          <div v-if="isExpanded(state.pcode) && state.zones && state.zones.length > 0" class="tree-zones">
+            <div class="tree-zones-label">Zones</div>
+            <button
+              v-for="zone in state.zones"
+              :key="zone.zone_pcode"
+              class="tree-zone"
+              :title="`${zone.zone_name} (${zone.zone_pcode})`"
+              @click="selectLga(zone.zone_name)"
+              :class="{ active: activeHighlight === zone.zone_name }"
+            >
+              <span class="zone-dot" :style="{ background: zone.color ?? '#a78bfa' }"></span>
+              <span class="tree-label" v-html="highlight(zone.zone_name, boundarySearch) + ' (' + zone.zone_pcode + ')'"></span>
             </button>
           </div>
         </div>
@@ -328,6 +368,62 @@ watch(boundarySearch, (q) => {
   color: #bae6fd;
   border-radius: 2px;
   padding: 0 1px;
+}
+
+.tree-zones { margin-top: 4px; margin-left: 12px; }
+.tree-zones-label { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
+.tree-zone { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; background: none; border: none; color: #c4b5fd; cursor: pointer; padding: 3px 6px; border-radius: 4px; font-size: 11px; }
+.tree-zone:hover { background: #1e1b4b; }
+.tree-zone.active { background: #312e81; }
+.zone-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+.tenant-section {
+  padding-bottom: 12px;
+  border-bottom: 1px solid #1f2937;
+  margin-bottom: 12px;
+}
+
+.tenant-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+
+.tenant-select {
+  width: 100%;
+  background: #0f172a;
+  color: #e5e7eb;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tenant-name {
+  margin-top: 5px;
+  font-size: 11px;
+  color: #67e8f9;
+  font-weight: 600;
+}
+
+.nav-btn {
+  margin-top: 8px;
+  width: 100%;
+  background: #1e3a5f;
+  color: #67e8f9;
+  border: 1px solid #1e4d78;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: center;
+}
+
+.nav-btn:hover {
+  background: #1e4d78;
 }
 
 @media (max-width: 800px) {

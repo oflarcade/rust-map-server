@@ -1,10 +1,16 @@
 -- region-lookup.lua
 -- GET /region?lat=<lat>&lon=<lon>
--- Returns the zone or LGA containing the given coordinates via PostGIS ST_Contains.
--- Keeps the ngx.shared result cache (L1) for sub-ms repeat hits.
+-- Returns the full administrative hierarchy for the given coordinates:
+--   country → state → zone (if any) → lga
 --
 -- Response (found):
---   { found, pcode, level, name, state_pcode, adm2_pcode, adm2_name }
+--   {
+--     found: true, matched_level: "zone"|"lga",
+--     country: { pcode, name },
+--     state:   { pcode, name },
+--     zone:    { pcode, name, color },   -- only when matched via custom zone
+--     lga:     { pcode, name }           -- specific LGA (may be null if zone geom has no LGA match)
+--   }
 -- Response (not found):
 --   { found: false, error, code, lat, lon }
 
@@ -74,26 +80,50 @@ if err then
 end
 
 if row then
-    local payload = cjson.encode({
-        found       = true,
-        pcode       = row.pcode,
-        level       = row.level,
-        name        = row.name,
-        state_pcode = row.state_pcode,
-        adm2_pcode  = row.adm2_pcode,
-        adm2_name   = row.adm2_name,
-    })
-    if region_cache then region_cache:set(cache_key, "200\n" .. payload, 3600) end
-    ngx.say(payload)
+    -- Fetch country info from tenants table
+    local tenant, _ = db.get_tenant(tenant_id)
+    local country_pcode = (tenant and tenant.country_code) or ""
+    local country_name  = (tenant and tenant.country_name)  or ""
+
+    local payload = {
+        found         = true,
+        matched_level = row.matched_level,
+        country = {
+            pcode = country_pcode,
+            name  = country_name,
+        },
+        state = {
+            pcode = row.state_pcode,
+            name  = row.state_name,
+        },
+    }
+
+    if row.matched_level == "zone" then
+        payload.zone = {
+            pcode = row.zone_pcode,
+            name  = row.zone_name,
+            color = row.zone_color,
+        }
+        -- lga may be nil if the zone geometry spans an area with no constituent match
+        if row.lga_pcode then
+            payload.lga = { pcode = row.lga_pcode, name = row.lga_name }
+        end
+    else
+        payload.lga = { pcode = row.lga_pcode, name = row.lga_name }
+    end
+
+    local body = cjson.encode(payload)
+    if region_cache then region_cache:set(cache_key, "200\n" .. body, 3600) end
+    ngx.say(body)
 else
-    local payload = cjson.encode({
+    local body = cjson.encode({
         found = false,
         error = "Coordinates do not fall within any known boundary for this tenant",
         code  = "REGION_NOT_FOUND",
         lat   = lat,
         lon   = lon,
     })
-    if region_cache then region_cache:set(cache_key, "404\n" .. payload, 3600) end
+    if region_cache then region_cache:set(cache_key, "404\n" .. body, 3600) end
     ngx.status = 404
-    ngx.say(payload)
+    ngx.say(body)
 end

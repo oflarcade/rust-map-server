@@ -19,6 +19,7 @@ end
 
 ngx.header["Content-Type"]  = "application/geo+json"
 ngx.header["Cache-Control"] = "public, max-age=300"
+ngx.header["Vary"]          = "X-Tenant-ID"
 
 ngx.print('{"type":"FeatureCollection","features":[')
 

@@ -6,6 +6,7 @@ services:
       POSTGRES_DB: mapserver
       POSTGRES_USER: mapserver
       POSTGRES_PASSWORD: mapserver
+      POSTGRES_HOST_AUTH_METHOD: trust
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ../scripts/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
@@ -39,8 +40,6 @@ services:
     cpus: 1.0
     ports:
       - "8080:8080"
-    environment:
-      - ADMIN_TOKEN=changeme-replace-in-production
     volumes:
       - ./nginx-tenant-proxy.conf:/etc/nginx/conf.d/default.conf:ro
       - ./lua:/etc/nginx/lua:ro

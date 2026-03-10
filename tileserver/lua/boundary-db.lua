@@ -106,6 +106,11 @@ function M.get_hierarchy_lgas(tenant_id)
         FROM adm_features a
         JOIN tenant_scope ts ON ts.pcode = a.pcode AND ts.tenant_id = $1
         WHERE a.adm_level = 2
+          AND a.pcode NOT IN (
+              SELECT UNNEST(constituent_pcodes)
+              FROM zones
+              WHERE tenant_id = $1
+          )
         ORDER BY a.name
     ]]
     return pg.exec(sql, {tenant_id})
@@ -137,19 +142,26 @@ end
 
 -- ---------------------------------------------------------------------------
 -- region_lookup(tenant_id, lat, lon)
--- Returns the zone or LGA containing the point. Checks zones first.
+-- Returns full hierarchy path for the point: country → state → zone? → lga
+-- Checks custom zones first (higher specificity), falls back to raw LGA.
 -- ---------------------------------------------------------------------------
 function M.region_lookup(tenant_id, lat, lon)
-    -- Try zones first (higher specificity / operator-defined grouping)
+    -- Try zones first — join state name and find the specific LGA inside the zone
     local zone_sql = [[
         SELECT
-            z.zone_pcode AS pcode,
-            z.zone_name  AS name,
-            'zone'       AS level,
+            z.zone_pcode   AS zone_pcode,
+            z.zone_name    AS zone_name,
+            z.color        AS zone_color,
             z.parent_pcode AS state_pcode,
-            NULL           AS adm2_pcode,
-            NULL           AS adm2_name
+            s.name         AS state_name,
+            lga.pcode      AS lga_pcode,
+            lga.name       AS lga_name
         FROM zones z
+        JOIN adm_features s ON s.pcode = z.parent_pcode
+        LEFT JOIN adm_features lga
+            ON lga.adm_level = 2
+           AND lga.pcode = ANY(z.constituent_pcodes)
+           AND ST_Contains(lga.geom, ST_SetSRID(ST_MakePoint($3, $2), 4326))
         WHERE z.tenant_id = $1
           AND ST_Contains(z.geom, ST_SetSRID(ST_MakePoint($3, $2), 4326))
         LIMIT 1
@@ -157,20 +169,29 @@ function M.region_lookup(tenant_id, lat, lon)
     local zone_result, err = pg.exec(zone_sql, {tenant_id, lat, lon})
     if err then return nil, err end
     if zone_result and #zone_result > 0 then
-        return zone_result[1], nil
+        local z = zone_result[1]
+        return {
+            matched_level = "zone",
+            state_pcode   = z.state_pcode,
+            state_name    = z.state_name,
+            zone_pcode    = z.zone_pcode,
+            zone_name     = z.zone_name,
+            zone_color    = z.zone_color,
+            lga_pcode     = z.lga_pcode,
+            lga_name      = z.lga_name,
+        }, nil
     end
 
-    -- Fallback: LGA from tenant scope
+    -- Fallback: raw LGA from tenant scope — join parent state name
     local lga_sql = [[
         SELECT
-            a.pcode            AS pcode,
-            a.name             AS name,
-            'adm2'             AS level,
-            a.parent_pcode     AS state_pcode,
-            a.pcode            AS adm2_pcode,
-            a.name             AS adm2_name
+            a.pcode        AS lga_pcode,
+            a.name         AS lga_name,
+            a.parent_pcode AS state_pcode,
+            s.name         AS state_name
         FROM adm_features a
         JOIN tenant_scope ts ON ts.pcode = a.pcode AND ts.tenant_id = $1
+        JOIN adm_features s  ON s.pcode = a.parent_pcode
         WHERE a.adm_level = 2
           AND ST_Contains(a.geom, ST_SetSRID(ST_MakePoint($3, $2), 4326))
         LIMIT 1
@@ -178,7 +199,14 @@ function M.region_lookup(tenant_id, lat, lon)
     local lga_result, err2 = pg.exec(lga_sql, {tenant_id, lat, lon})
     if err2 then return nil, err2 end
     if lga_result and #lga_result > 0 then
-        return lga_result[1], nil
+        local l = lga_result[1]
+        return {
+            matched_level = "lga",
+            state_pcode   = l.state_pcode,
+            state_name    = l.state_name,
+            lga_pcode     = l.lga_pcode,
+            lga_name      = l.lga_name,
+        }, nil
     end
 
     return nil, nil  -- not found (no error)

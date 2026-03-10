@@ -18,6 +18,7 @@ if hierarchy_cache then
     if cached then
         ngx.header["Content-Type"]  = "application/json"
         ngx.header["Cache-Control"] = "public, max-age=86400"
+        ngx.header["Vary"]          = "X-Tenant-ID"
         ngx.header["X-Cache"]       = "HIT"
         ngx.print(cached)
         return
@@ -60,15 +61,17 @@ end
 
 local lgas_by_state = {}  -- parent_pcode -> [lga, ...]
 for _, l in ipairs(lgas_rows or {}) do
-    local list = lgas_by_state[l.parent_pcode] or {}
-    table.insert(list, {
-        pcode      = l.pcode,
-        name       = l.name,
-        area_sqkm  = tonumber(l.area_sqkm),
-        center_lat = tonumber(l.center_lat),
-        center_lon = tonumber(l.center_lon),
-    })
-    lgas_by_state[l.parent_pcode] = list
+    if l.parent_pcode then  -- skip orphaned features with no parent
+        local list = lgas_by_state[l.parent_pcode] or {}
+        table.insert(list, {
+            pcode      = l.pcode,
+            name       = l.name,
+            area_sqkm  = tonumber(l.area_sqkm),
+            center_lat = tonumber(l.center_lat),
+            center_lon = tonumber(l.center_lon),
+        })
+        lgas_by_state[l.parent_pcode] = list
+    end
 end
 
 -- Get tenant metadata for top-level fields
@@ -123,5 +126,6 @@ end
 
 ngx.header["Content-Type"]  = "application/json"
 ngx.header["Cache-Control"] = "public, max-age=86400"
+ngx.header["Vary"]          = "X-Tenant-ID"
 ngx.header["X-Cache"]       = "MISS"
 ngx.print(body)

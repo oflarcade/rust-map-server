@@ -4,14 +4,15 @@ local ALLOWED = {
     ["http://localhost:4000"] = true,
     ["http://localhost:8000"] = true,
     ["http://localhost:8080"] = true,
+    ["http://35.239.86.115"] = true,
     -- ["https://app.newglobe.com"]    = true,
     -- ["https://portal.newglobe.com"] = true,
 }
 
 if ngx.req.get_method() == "OPTIONS" then
     ngx.header["Access-Control-Allow-Origin"]  = ngx.req.get_headers()["Origin"] or "*"
-    ngx.header["Access-Control-Allow-Methods"] = "GET, OPTIONS"
-    ngx.header["Access-Control-Allow-Headers"] = "X-Tenant-ID, Content-Type"
+    ngx.header["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    ngx.header["Access-Control-Allow-Headers"] = "X-Tenant-ID, X-Admin-Token, Content-Type"
     ngx.header["Access-Control-Max-Age"]       = "86400"
     ngx.status = 204
     return ngx.exit(204)
