@@ -5,8 +5,6 @@ local ALLOWED = {
     ["http://localhost:8000"] = true,
     ["http://localhost:8080"] = true,
     ["http://35.239.86.115"] = true,
-    -- ["https://app.newglobe.com"]    = true,
-    -- ["https://portal.newglobe.com"] = true,
 }
 
 if ngx.req.get_method() == "OPTIONS" then
