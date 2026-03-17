@@ -38,9 +38,15 @@ Nginx `map` directive translates `X-Tenant-ID` header → Martin source name. Ma
 ### PostGIS Schema (scripts/schema.sql)
 ```
 tenants        — tenant config (country_code, country_name, hdx_prefix, tile_source)
-adm_features   — HDX/OSM states + LGAs for all countries (geom GIST indexed)
-tenant_scope   — which LGAs/states each tenant operates in
+adm_features   — HDX/OSM/INEC admin boundaries for all countries (geom GIST indexed)
+                  level_label VARCHAR(100): human-readable type for adm3+ rows
+                  (e.g. "Ward", "Senatorial District", "Federal Constituency", "Sector")
+tenant_scope   — which adm features each tenant operates in (adm1 through adm5+)
 zones          — custom zone groupings per tenant (ST_Union geometry, pre-computed)
+                  zone_type_label VARCHAR(100): operator-assigned label (e.g. "Cluster")
+                  zone_level SMALLINT DEFAULT 1: nesting depth (1 = under state)
+                  children_type VARCHAR(4) DEFAULT 'lga': 'lga' = constituent_pcodes are
+                    adm_features pcodes; 'zone' = constituent_pcodes are child zone_pcodes
 ```
 
 ---
@@ -73,7 +79,7 @@ zones          — custom zone groupings per tenant (ST_Union geometry, pre-comp
   "adm_4": { "pcode": "KE004019", "name": "Galole" }
 }
 ```
-`adm_3` is present only when `matched_level === "zone"`. For raw LGA hits, only `adm_0`, `adm_1`, and `adm_4` are returned. For zone matches without a specific LGA hit, only `adm_0` and `adm_1` are present.
+`adm_N` keys are dynamic based on zone depth: `zone_level=1` maps to `adm_3`, LGA at `adm_4`; `zone_level=2` maps to `adm_4`, LGA at `adm_5`. For raw LGA hits (no zones), only `adm_0`, `adm_1`, and `adm_4` are returned.
 
 ### /boundaries/hierarchy cache
 Cached in `ngx.shared.hierarchy_cache` (8MB, keyed by tenant_id, 24h TTL).
@@ -123,12 +129,14 @@ Vue FE appends `?t=${tenantId}` to all GeoJSON/hierarchy URLs to make per-tenant
 | `tileserver/lua/admin-zones.lua` | GET/POST/PUT/DELETE /admin/zones — zone CRUD |
 | `tileserver/lua/origin-whitelist.lua` | Origin whitelist + CORS headers |
 | `tileserver/lua/pgmoon/` | pgmoon Lua Postgres driver (vendored, 8 files, no luarocks) |
-| `scripts/schema.sql` | PostGIS schema (tenants, adm_features, tenant_scope, zones) |
-| `scripts/import-hdx-to-pg.js` | Node.js: HDX GeoJSON → PostgreSQL import |
+| `scripts/schema.sql` | PostGIS schema (tenants, adm_features, tenant_scope, zones) with multi-level zone columns |
+| `scripts/import-hdx-to-pg.js` | Node.js: HDX GeoJSON → PostgreSQL import; sets level_label for adm3+ rows |
+| `scripts/import-inec-to-pg.js` | Node.js: Nigeria INEC electoral GeoJSON → adm_features (senatorial/constituency/emirate/ward) |
+| `scripts/ps1/download-inec.ps1` | PowerShell: download Nigeria INEC electoral boundaries from HDX |
 | `scripts/k6-region-stress.js` | k6 stress test: /region endpoint only |
 | `scripts/k6-all-endpoints.js` | k6 comprehensive: all 8 FE endpoints, 4 tenants, multi-tenant isolation |
 | `View/src/views/TileInspector.vue` | Tile inspector SPA view |
-| `View/src/views/ZoneManager.vue` | Zone manager: draw zones by clicking LGAs on map |
+| `View/src/views/ZoneManager.vue` | Zone manager: variable-depth zones, zone_type_label, parent zone dropdown |
 | `View/src/components/BoundaryExplorer.vue` | Sidebar: tenant selector, search, hierarchy tree |
 | `View/src/composables/useTileInspector.ts` | Shared state: map, tenant, hierarchy, boundary data |
 
@@ -163,8 +171,15 @@ Scripts are grouped: **Bash** in `scripts/sh/`, **PowerShell** in `scripts/ps1/`
 ```powershell
 .\scripts\ps1\download-hdx.ps1                    # Download HDX COD-AB GeoJSON -> hdx/
 .\scripts\ps1\download-hdx.ps1 -Country kenya
-node scripts/import-hdx-to-pg.js                  # Import HDX GeoJSON -> PostgreSQL
+node scripts/import-hdx-to-pg.js                  # Import HDX GeoJSON -> PostgreSQL (sets level_label)
 node scripts/split-boundaries.js                  # Split nigeria-boundaries.geojson per-tenant
+
+# Nigeria INEC electoral boundaries (senatorial/constituency)
+.\scripts\ps1\download-inec.ps1 -Search           # Find HDX package IDs
+.\scripts\ps1\download-inec.ps1                   # Auto-download to data\inec\
+node scripts/import-inec-to-pg.js                 # Import all states
+node scripts/import-inec-to-pg.js --state NG018   # Jigawa only
+node scripts/import-inec-to-pg.js --dry-run       # Dry-run (no DB writes)
 ```
 
 ### Running the Server (Docker)
@@ -199,19 +214,36 @@ k6 run --env BASE=http://localhost:8080 scripts/k6-all-endpoints.js
 ```
 
 ### Deploy to GCP
-```bash
-# Deploy Lua files
-gcloud compute scp --zone=us-central1-a tileserver/lua/boundary-db.lua \
+```powershell
+# Deploy all changed Lua files (run in PowerShell)
+gcloud compute scp --zone=us-central1-a `
+  tileserver/lua/boundary-db.lua `
+  tileserver/lua/serve-hierarchy.lua `
+  tileserver/lua/region-lookup.lua `
+  tileserver/lua/admin-zones.lua `
   martin-tileserver:/home/omarlakhdhar_gmail_com/rust-map-server/tileserver/lua/
+
+# Apply schema migration (idempotent, safe on existing installs)
+gcloud compute ssh martin-tileserver --zone=us-central1-a --command="
+  docker exec -i tileserver_postgres_1 psql -U mapserver -d mapserver -c \"
+    ALTER TABLE adm_features ADD COLUMN IF NOT EXISTS level_label VARCHAR(100);
+    ALTER TABLE zones ADD COLUMN IF NOT EXISTS zone_type_label VARCHAR(100);
+    ALTER TABLE zones ADD COLUMN IF NOT EXISTS zone_level SMALLINT NOT NULL DEFAULT 1;
+    ALTER TABLE zones ADD COLUMN IF NOT EXISTS children_type VARCHAR(4) NOT NULL DEFAULT 'lga';
+  \"
+"
 
 # Build + deploy Vue app (ALWAYS set production env vars)
 cd View
-VITE_PROXY_URL=http://35.239.86.115:8080 VITE_MARTIN_URL=http://35.239.86.115:3000 npm run build
-gcloud compute scp --zone=us-central1-a --recurse dist/index.html dist/assets \
+$env:VITE_PROXY_URL="http://35.239.86.115:8080"
+$env:VITE_MARTIN_URL="http://35.239.86.115:3000"
+npm run build
+gcloud compute scp --zone=us-central1-a --recurse `
+  dist/index.html dist/assets `
   martin-tileserver:/home/omarlakhdhar_gmail_com/rust-map-server/View/dist/
 
 # Restart nginx (required after Lua changes; also clears ngx.shared)
-gcloud compute ssh martin-tileserver --zone=us-central1-a \
+gcloud compute ssh martin-tileserver --zone=us-central1-a `
   --command="sudo docker restart tileserver_nginx_1"
 ```
 
@@ -221,12 +253,25 @@ gcloud compute ssh martin-tileserver --zone=us-central1-a \
 
 ### Current State
 - **Nigeria, Kenya, Uganda, Liberia, CAR**: HDX COD-AB data imported into PostgreSQL (`adm_features`)
+- **Nigeria adm3 (wards)**: HDX COD-AB adm3 covers only Borno (NG008), Adamawa (NG002), Yobe (NG036). Jigawa (NG018) is NOT in HDX adm3 — use INEC electoral data or GRID3 for Jigawa adm3+.
 - **Rwanda**: OSM-derived (admin_level 4=provinces, 6=districts) imported via `/tmp/import_rwanda.py`; 5 provinces (RW01-RW05), 30 districts (RWD001-RWD031) for tenant 12
 - **India**: No HDX COD-AB; OSM only (partial)
-- **Zones**: Per-tenant custom groupings in `zones` table, geometry is pre-computed `ST_Union` of constituent LGAs
+- **Zones**: Per-tenant custom groupings in `zones` table, geometry is pre-computed `ST_Union` of constituent LGAs or child zones
+
+### Adm3+ data sources
+| Country | Level | Label | Source | Script |
+|---------|-------|-------|--------|--------|
+| Nigeria | adm3 (NE only) | Senatorial District | HDX COD-AB nigeria_adm3.geojson | import-hdx-to-pg.js |
+| Nigeria | adm3 | Senatorial District | INEC electoral (HDX search or manual) | import-inec-to-pg.js |
+| Nigeria | adm4 | Federal Constituency | INEC electoral | import-inec-to-pg.js |
+| Nigeria | adm5 | Ward | GRID3 (grid3.org/resources?q=nigeria) | import-inec-to-pg.js |
+| Kenya | adm3 | Ward | GRID3 | (pending download-grid3.ps1) |
+| Uganda | adm3 | Parish | GRID3 | (pending) |
+| Rwanda | adm3 | Sector | OSM rwanda-latest.osm.pbf | (pending ogr2ogr) |
+| India | adm3 | Mandal | OSM india-latest.osm.pbf | (pending ogr2ogr) |
 
 ### Hierarchy exclusion rule
-LGAs that belong to a zone are excluded from the individual LGA list in both `/boundaries/geojson` and `/boundaries/hierarchy`. A zone's constituent pcodes are stored in `zones.constituent_pcodes TEXT[]`.
+LGAs that belong to a zone are excluded from the individual LGA list in both `/boundaries/geojson` and `/boundaries/hierarchy`. A zone's constituent pcodes are stored in `zones.constituent_pcodes TEXT[]`. Only zones with `children_type='lga'` trigger this exclusion.
 
 ### Known Issues
 - `boundaries/nigeria-boundaries.pmtiles.bak` — corrupt file, renamed to prevent Martin crash. **Do not rename back.**
