@@ -101,14 +101,25 @@ if row then
     }
 
     if row.matched_level == "zone" then
-        payload.adm_3 = {
-            pcode = row.zone_pcode,
-            name  = row.zone_name,
-            color = row.zone_color,
-        }
-        -- lga may be nil if the zone geometry spans an area with no constituent match
+        -- zone_chain is ordered shallowest→deepest; zone_level=1 maps to adm_3, level=2 to adm_4, etc.
+        local max_zone_level = 1
+        for _, z in ipairs(row.zone_chain or {}) do
+            local adm_key = "adm_" .. (tonumber(z.zone_level) + 2)
+            payload[adm_key] = {
+                pcode  = z.zone_pcode,
+                name   = z.zone_name,
+                color  = z.zone_color,
+            }
+            if z.zone_type_label then
+                payload[adm_key].type = z.zone_type_label
+            end
+            local lvl = tonumber(z.zone_level) or 1
+            if lvl > max_zone_level then max_zone_level = lvl end
+        end
+        -- LGA sits one slot above the deepest zone level
         if row.lga_pcode then
-            payload.adm_4 = { pcode = row.lga_pcode, name = row.lga_name }
+            local lga_key = "adm_" .. (max_zone_level + 3)
+            payload[lga_key] = { pcode = row.lga_pcode, name = row.lga_name }
         end
     else
         payload.adm_4 = { pcode = row.lga_pcode, name = row.lga_name }

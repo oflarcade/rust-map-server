@@ -30,7 +30,8 @@ CREATE TABLE adm_features (
     geom         GEOMETRY(MULTIPOLYGON, 4326) NOT NULL,
     area_sqkm    FLOAT,
     center_lat   FLOAT,
-    center_lon   FLOAT
+    center_lon   FLOAT,
+    level_label  VARCHAR(100)  -- human-readable type name for adm3+, e.g. "Ward", "Senatorial District"
 );
 
 CREATE INDEX adm_features_geom_idx    ON adm_features USING GIST(geom);
@@ -62,14 +63,27 @@ CREATE TABLE zones (
     zone_pcode         VARCHAR(40)  NOT NULL UNIQUE,
     zone_name          VARCHAR(255) NOT NULL,
     color              VARCHAR(7),               -- hex e.g. '#FF5733'
-    parent_pcode       VARCHAR(30)  NOT NULL,    -- state pcode this zone belongs to
-    constituent_pcodes TEXT[]       NOT NULL,    -- LGA pcodes grouped into this zone
-    geom               GEOMETRY(MULTIPOLYGON, 4326),  -- ST_Union of constituent LGAs, pre-computed
+    parent_pcode       VARCHAR(30)  NOT NULL,    -- state pcode OR parent zone_pcode
+    constituent_pcodes TEXT[]       NOT NULL,    -- adm_features pcodes OR child zone pcodes
+    geom               GEOMETRY(MULTIPOLYGON, 4326),  -- ST_Union of constituents, pre-computed
+    zone_type_label    VARCHAR(100),             -- human-readable zone type, e.g. "Operational Zone"
+    zone_level         SMALLINT     NOT NULL DEFAULT 1,  -- nesting depth (1 = directly under state)
+    children_type      VARCHAR(4)   NOT NULL DEFAULT 'lga', -- 'lga' = constituent_pcodes are adm_features, 'zone' = child zones
     created_at         TIMESTAMPTZ  DEFAULT NOW(),
     updated_at         TIMESTAMPTZ  DEFAULT NOW()
 );
 
-CREATE INDEX zones_geom_idx   ON zones USING GIST(geom);
-CREATE INDEX zones_tenant_idx ON zones(tenant_id);
-CREATE INDEX zones_parent_idx ON zones(parent_pcode);
-CREATE INDEX zones_pcode_idx  ON zones(zone_pcode);
+CREATE INDEX zones_geom_idx    ON zones USING GIST(geom);
+CREATE INDEX zones_tenant_idx  ON zones(tenant_id);
+CREATE INDEX zones_parent_idx  ON zones(parent_pcode);
+CREATE INDEX zones_pcode_idx   ON zones(zone_pcode);
+CREATE INDEX zones_level_idx   ON zones(tenant_id, zone_level);
+
+-- ---------------------------------------------------------------------------
+-- Migration statements — safe to run on existing installations (idempotent)
+-- These are no-ops on fresh installs because the columns already exist above.
+-- ---------------------------------------------------------------------------
+ALTER TABLE adm_features ADD COLUMN IF NOT EXISTS level_label VARCHAR(100);
+ALTER TABLE zones ADD COLUMN IF NOT EXISTS zone_type_label VARCHAR(100);
+ALTER TABLE zones ADD COLUMN IF NOT EXISTS zone_level    SMALLINT NOT NULL DEFAULT 1;
+ALTER TABLE zones ADD COLUMN IF NOT EXISTS children_type VARCHAR(4) NOT NULL DEFAULT 'lga';

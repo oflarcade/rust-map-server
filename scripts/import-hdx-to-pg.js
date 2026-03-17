@@ -180,6 +180,32 @@ async function importAdmFeatures(client) {
   }
 
   ok(`Total adm_features inserted/updated: ${totalInserted}`);
+
+  // Set level_label for adm3+ rows based on country/level
+  // Update this map as new countries/levels are imported.
+  const LEVEL_LABELS = [
+    { country_code: 'NG', adm_level: 3, label: 'Senatorial District' },
+    { country_code: 'NG', adm_level: 4, label: 'Federal Constituency' },
+    { country_code: 'NG', adm_level: 5, label: 'Ward' },
+    { country_code: 'KE', adm_level: 3, label: 'Ward' },
+    { country_code: 'UG', adm_level: 3, label: 'Parish' },
+    { country_code: 'LR', adm_level: 3, label: 'Clan' },
+    { country_code: 'CF', adm_level: 3, label: 'Sub-prefecture' },
+    { country_code: 'RW', adm_level: 3, label: 'Sector' },
+    { country_code: 'RW', adm_level: 4, label: 'Cell' },
+    { country_code: 'IN', adm_level: 3, label: 'Mandal' },
+  ];
+
+  log('Setting level_label for adm3+ rows...');
+  for (const { country_code, adm_level, label } of LEVEL_LABELS) {
+    const res = await client.query(`
+      UPDATE adm_features SET level_label = $1
+      WHERE country_code = $2 AND adm_level = $3 AND level_label IS NULL
+    `, [label, country_code, adm_level]);
+    if (res.rowCount > 0) {
+      ok(`  ${country_code} adm${adm_level}: set level_label="${label}" on ${res.rowCount} rows`);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -91,11 +91,12 @@ end
 
 function M.get_hierarchy_zones(tenant_id)
     local sql = [[
-        SELECT zone_pcode, zone_name, color, parent_pcode,
+        SELECT zone_pcode, zone_name, zone_type_label, zone_level, children_type,
+               color, parent_pcode,
                array_to_string(constituent_pcodes, ',') AS constituent_pcodes
         FROM zones
         WHERE tenant_id = $1
-        ORDER BY zone_name
+        ORDER BY zone_level, zone_name
     ]]
     return pg.exec(sql, {tenant_id})
 end
@@ -109,9 +110,25 @@ function M.get_hierarchy_lgas(tenant_id)
           AND a.pcode NOT IN (
               SELECT UNNEST(constituent_pcodes)
               FROM zones
-              WHERE tenant_id = $1
+              WHERE tenant_id = $1 AND children_type = 'lga'
           )
         ORDER BY a.name
+    ]]
+    return pg.exec(sql, {tenant_id})
+end
+
+-- ---------------------------------------------------------------------------
+-- get_hierarchy_adm_features(tenant_id)
+-- Returns ALL adm levels in tenant scope (adm1 through adm5+).
+-- Used to build the recursive children tree.
+-- ---------------------------------------------------------------------------
+function M.get_hierarchy_adm_features(tenant_id)
+    local sql = [[
+        SELECT a.pcode, a.name, a.adm_level, a.level_label, a.parent_pcode,
+               a.area_sqkm, a.center_lat, a.center_lon
+        FROM adm_features a
+        JOIN tenant_scope ts ON ts.pcode = a.pcode AND ts.tenant_id = $1
+        ORDER BY a.adm_level, a.name
     ]]
     return pg.exec(sql, {tenant_id})
 end
@@ -146,49 +163,23 @@ end
 -- Checks custom zones first (higher specificity), falls back to raw LGA.
 -- ---------------------------------------------------------------------------
 function M.region_lookup(tenant_id, lat, lon)
-    -- Try zones first — join state name and find the specific LGA inside the zone
+    -- Find all zones containing the point, deepest first.
+    -- We fetch all matches so we can walk the parent chain in Lua.
     local zone_sql = [[
-        SELECT
-            z.zone_pcode   AS zone_pcode,
-            z.zone_name    AS zone_name,
-            z.color        AS zone_color,
-            z.parent_pcode AS state_pcode,
-            s.name         AS state_name,
-            lga.pcode      AS lga_pcode,
-            lga.name       AS lga_name
+        SELECT z.zone_pcode, z.zone_name, z.zone_type_label, z.zone_level,
+               z.parent_pcode, z.color AS zone_color
         FROM zones z
-        JOIN adm_features s ON s.pcode = z.parent_pcode
-        LEFT JOIN adm_features lga
-            ON lga.adm_level = 2
-           AND lga.pcode = ANY(z.constituent_pcodes)
-           AND ST_Contains(lga.geom, ST_SetSRID(ST_MakePoint($3, $2), 4326))
         WHERE z.tenant_id = $1
           AND ST_Contains(z.geom, ST_SetSRID(ST_MakePoint($3, $2), 4326))
-        LIMIT 1
+        ORDER BY z.zone_level DESC
     ]]
-    local zone_result, err = pg.exec(zone_sql, {tenant_id, lat, lon})
+    local zone_rows, err = pg.exec(zone_sql, {tenant_id, lat, lon})
     if err then return nil, err end
-    if zone_result and #zone_result > 0 then
-        local z = zone_result[1]
-        return {
-            matched_level = "zone",
-            state_pcode   = z.state_pcode,
-            state_name    = z.state_name,
-            zone_pcode    = z.zone_pcode,
-            zone_name     = z.zone_name,
-            zone_color    = z.zone_color,
-            lga_pcode     = z.lga_pcode,
-            lga_name      = z.lga_name,
-        }, nil
-    end
 
-    -- Fallback: raw LGA from tenant scope — join parent state name
+    -- Always look up the LGA (adm_level=2) containing the point
     local lga_sql = [[
-        SELECT
-            a.pcode        AS lga_pcode,
-            a.name         AS lga_name,
-            a.parent_pcode AS state_pcode,
-            s.name         AS state_name
+        SELECT a.pcode AS lga_pcode, a.name AS lga_name,
+               a.parent_pcode AS state_pcode, s.name AS state_name
         FROM adm_features a
         JOIN tenant_scope ts ON ts.pcode = a.pcode AND ts.tenant_id = $1
         JOIN adm_features s  ON s.pcode = a.parent_pcode
@@ -198,14 +189,62 @@ function M.region_lookup(tenant_id, lat, lon)
     ]]
     local lga_result, err2 = pg.exec(lga_sql, {tenant_id, lat, lon})
     if err2 then return nil, err2 end
-    if lga_result and #lga_result > 0 then
-        local l = lga_result[1]
+
+    local lga_row = lga_result and lga_result[1]
+
+    if zone_rows and #zone_rows > 0 then
+        -- Build a lookup from zone_pcode -> zone row
+        local zone_by_pcode = {}
+        for _, z in ipairs(zone_rows) do
+            zone_by_pcode[z.zone_pcode] = z
+        end
+
+        -- Start from the deepest zone (first row, highest zone_level)
+        local deepest = zone_rows[1]
+
+        -- Walk up the parent chain collecting zones (deepest → shallowest order from traversal)
+        local chain = {}
+        local current = deepest
+        local MAX_DEPTH = 10
+        for _ = 1, MAX_DEPTH do
+            table.insert(chain, 1, current)  -- prepend to get shallowest first
+            local parent = zone_by_pcode[current.parent_pcode]
+            if not parent then break end
+            current = parent
+        end
+
+        -- state_pcode is the parent of the topmost zone in the chain
+        local state_pcode = chain[1].parent_pcode
+        local state_name  = ""
+        if lga_row and lga_row.state_pcode == state_pcode then
+            state_name = lga_row.state_name
+        else
+            -- fetch state name directly
+            local s_res, _ = pg.exec(
+                "SELECT name FROM adm_features WHERE pcode = $1 AND adm_level = 1",
+                {state_pcode}
+            )
+            if s_res and #s_res > 0 then state_name = s_res[1].name end
+        end
+
+        return {
+            matched_level = "zone",
+            state_pcode   = state_pcode,
+            state_name    = state_name,
+            zone_chain    = chain,  -- ordered shallowest → deepest
+            lga_pcode     = lga_row and lga_row.lga_pcode,
+            lga_name      = lga_row and lga_row.lga_name,
+        }, nil
+    end
+
+    -- Fallback: raw LGA only
+    if lga_row then
         return {
             matched_level = "lga",
-            state_pcode   = l.state_pcode,
-            state_name    = l.state_name,
-            lga_pcode     = l.lga_pcode,
-            lga_name      = l.lga_name,
+            state_pcode   = lga_row.state_pcode,
+            state_name    = lga_row.state_name,
+            lga_pcode     = lga_row.lga_pcode,
+            lga_name      = lga_row.lga_name,
         }, nil
     end
 

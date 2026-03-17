@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import maplibregl from 'maplibre-gl';
 import { TENANTS, getTenantById, type TenantConfig } from '../config/tenants';
@@ -19,13 +19,15 @@ const statusMsg        = ref('');
 const statusType       = ref<'info' | 'error' | 'success'>('info');
 
 // Zone form
-const zoneName     = ref('');
-const zoneColor    = ref('#3b82f6');
-const selectedLgas = ref<string[]>([]);   // pcodes of clicked LGAs
-const existingZones = ref<Zone[]>([]);
-const editingZone   = ref<Zone | null>(null);
-const hierarchyData = ref<any>(null);
-const allFeatures   = ref<any[]>([]);           // all geojson features for bbox lookup
+const zoneName        = ref('');
+const zoneColor       = ref('#3b82f6');
+const zoneTypeLabel   = ref('');
+const zoneParentPcode = ref('');    // explicitly chosen parent (state or zone pcode)
+const selectedLgas    = ref<string[]>([]);   // pcodes of clicked LGAs
+const existingZones   = ref<Zone[]>([]);
+const editingZone     = ref<Zone | null>(null);
+const hierarchyData   = ref<any>(null);
+const allFeatures     = ref<any[]>([]);           // all geojson features for bbox lookup
 const activeFeaturePcode = ref<string | null>(null); // sidebar highlight
 
 interface Zone {
@@ -34,12 +36,95 @@ interface Zone {
   zone_name: string;
   color: string;
   parent_pcode: string;
+  zone_type_label?: string;
+  zone_level: number;
+  children_type: 'lga' | 'zone';
   constituent_pcodes: string[];
+}
+
+// Flattened boundary tree node (for variable-depth rendering)
+interface FlatTreeNode {
+  pcode: string;
+  name: string;
+  depth: number;
+  isZone: boolean;
+  color?: string;
+  level_label?: string;
 }
 
 let map: maplibregl.Map | null = null;
 let popup: maplibregl.Popup | null = null;
 let loadVersion = 0; // incremented on each initMap; stale loadBoundaries calls bail early
+
+// ---------------------------------------------------------------------------
+// Derived: parent options for zone creation (states + zones grouped by level)
+// ---------------------------------------------------------------------------
+const parentOptions = computed<Array<{ pcode: string; label: string; level: number }>>(() => {
+  const opts: Array<{ pcode: string; label: string; level: number }> = [];
+  if (!hierarchyData.value) return opts;
+  for (const state of (hierarchyData.value.states ?? [])) {
+    opts.push({ pcode: state.pcode, label: `${state.name} (state)`, level: 0 });
+  }
+  for (const z of existingZones.value) {
+    const indent = '  '.repeat(z.zone_level);
+    opts.push({
+      pcode: z.zone_pcode,
+      label: `${indent}${z.zone_name} (L${z.zone_level} zone)`,
+      level: z.zone_level,
+    });
+  }
+  return opts;
+});
+
+// ---------------------------------------------------------------------------
+// Derived: flat boundary tree for variable-depth rendering
+// ---------------------------------------------------------------------------
+const flatBoundaryTree = computed<FlatTreeNode[]>(() => {
+  if (!hierarchyData.value) return [];
+  const result: FlatTreeNode[] = [];
+
+  function flattenChildren(children: any[], depth: number) {
+    for (const child of (children ?? [])) {
+      if (child.is_zone || child.zone_pcode) {
+        result.push({
+          pcode: child.zone_pcode,
+          name: child.zone_name ?? child.name,
+          depth,
+          isZone: true,
+          color: child.color,
+          level_label: child.zone_type_label,
+        });
+      } else {
+        result.push({
+          pcode: child.pcode,
+          name: child.name,
+          depth,
+          isZone: false,
+          level_label: child.level_label,
+        });
+      }
+      if (child.children?.length) flattenChildren(child.children, depth + 1);
+    }
+  }
+
+  for (const state of (hierarchyData.value.states ?? [])) {
+    result.push({ pcode: state.pcode, name: state.name, depth: 0, isZone: false, level_label: 'State' });
+
+    if (state.children?.length) {
+      // Use new variable-depth children tree when available
+      flattenChildren(state.children, 1);
+    } else {
+      // Fallback: flat lgas + zones (backward compat)
+      for (const lga of (state.lgas ?? [])) {
+        result.push({ pcode: lga.pcode, name: lga.name, depth: 1, isZone: false });
+      }
+      for (const zone of (state.zones ?? [])) {
+        result.push({ pcode: zone.zone_pcode, name: zone.zone_name, depth: 1, isZone: true, color: zone.color });
+      }
+    }
+  }
+  return result;
+});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -364,26 +449,37 @@ async function createZone() {
   if (!zoneName.value.trim()) { setStatus('Zone name is required', 'error'); return; }
   if (selectedLgas.value.length === 0) { setStatus('Select at least one LGA', 'error'); return; }
 
-  // Derive parent_pcode from the first selected LGA's feature
-  const source = map?.getSource('lgas') as maplibregl.GeoJSONSource | undefined;
-  // @ts-ignore — _data is internal but accessible
-  const features: any[] = source?._data?.features ?? [];
-  const firstFeat = features.find((f: any) => f.properties.pcode === selectedLgas.value[0]);
-  const parentPcode = firstFeat?.properties?.parent_pcode ?? '';
+  // Determine parent_pcode: use explicit selection if set, otherwise derive from first LGA
+  let parentPcode = zoneParentPcode.value;
+  if (!parentPcode) {
+    const source = map?.getSource('lgas') as maplibregl.GeoJSONSource | undefined;
+    // @ts-ignore — _data is internal but accessible
+    const features: any[] = source?._data?.features ?? [];
+    const firstFeat = features.find((f: any) => f.properties.pcode === selectedLgas.value[0]);
+    parentPcode = firstFeat?.properties?.parent_pcode ?? '';
+  }
 
-  if (!parentPcode) { setStatus('Could not determine parent state pcode', 'error'); return; }
+  if (!parentPcode) { setStatus('Could not determine parent pcode', 'error'); return; }
+
+  // Determine zone_level from parent
+  const parentZone = existingZones.value.find(z => z.zone_pcode === parentPcode);
+  const zoneLevel  = parentZone ? parentZone.zone_level + 1 : 1;
 
   setStatus('Creating zone…');
   try {
+    const body: Record<string, any> = {
+      zone_name:          zoneName.value.trim(),
+      color:              zoneColor.value,
+      parent_pcode:       parentPcode,
+      constituent_pcodes: selectedLgas.value,
+      zone_level:         zoneLevel,
+    };
+    if (zoneTypeLabel.value.trim()) body.zone_type_label = zoneTypeLabel.value.trim();
+
     const res = await fetch(`${BASE}/admin/zones`, {
       method: 'POST',
       headers: tenantHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({
-        zone_name:          zoneName.value.trim(),
-        color:              zoneColor.value,
-        parent_pcode:       parentPcode,
-        constituent_pcodes: selectedLgas.value,
-      }),
+      body: JSON.stringify(body),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error ?? res.statusText);
@@ -402,6 +498,7 @@ async function updateZone() {
   setStatus('Updating zone…');
   try {
     const body: Record<string, any> = { zone_name: zoneName.value, color: zoneColor.value };
+    if (zoneTypeLabel.value.trim()) body.zone_type_label = zoneTypeLabel.value.trim();
     if (selectedLgas.value.length > 0) body.constituent_pcodes = selectedLgas.value;
 
     const res = await fetch(`${BASE}/admin/zones/${editingZone.value.zone_id}`, {
@@ -443,19 +540,23 @@ async function deleteZone() {
 }
 
 function startEdit(zone: Zone) {
-  editingZone.value   = zone;
-  zoneName.value      = zone.zone_name;
-  zoneColor.value     = zone.color ?? '#3b82f6';
-  selectedLgas.value  = [...zone.constituent_pcodes];
+  editingZone.value     = zone;
+  zoneName.value        = zone.zone_name;
+  zoneColor.value       = zone.color ?? '#3b82f6';
+  zoneTypeLabel.value   = zone.zone_type_label ?? '';
+  zoneParentPcode.value = zone.parent_pcode;
+  selectedLgas.value    = [...zone.constituent_pcodes];
   refreshSelectionLayer();
   setStatus(`Editing zone: ${zone.zone_name}`);
 }
 
 function clearForm() {
-  editingZone.value  = null;
-  zoneName.value     = '';
-  zoneColor.value    = '#3b82f6';
-  selectedLgas.value = [];
+  editingZone.value     = null;
+  zoneName.value        = '';
+  zoneColor.value       = '#3b82f6';
+  zoneTypeLabel.value   = '';
+  zoneParentPcode.value = '';
+  selectedLgas.value    = [];
   refreshSelectionLayer();
 }
 
@@ -509,6 +610,21 @@ onUnmounted(() => {
       </div>
 
       <div class="form-group">
+        <label>Zone Type <span class="muted">(optional)</span></label>
+        <input v-model="zoneTypeLabel" type="text" class="input" placeholder="e.g. Operational Zone" />
+      </div>
+
+      <div class="form-group" v-if="parentOptions.length > 0">
+        <label>Parent <span class="muted">(state or zone)</span></label>
+        <select v-model="zoneParentPcode" class="select">
+          <option value="">— auto-detect from selection —</option>
+          <option v-for="opt in parentOptions" :key="opt.pcode" :value="opt.pcode">
+            {{ opt.label }}
+          </option>
+        </select>
+      </div>
+
+      <div class="form-group">
         <label>Color</label>
         <div class="color-row">
           <input v-model="zoneColor" type="color" class="color-picker" />
@@ -559,42 +675,30 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- Boundary Tree -->
-      <div v-if="hierarchyData && hierarchyData.states">
+      <!-- Boundary Tree (variable depth) -->
+      <div v-if="flatBoundaryTree.length > 0">
         <hr class="divider" />
         <label>Boundary Tree</label>
         <div class="boundary-tree">
-          <div v-for="state in hierarchyData.states" :key="state.pcode" class="bt-state-group">
-            <button
-              class="bt-state bt-btn"
-              :class="{ 'bt-active': activeFeaturePcode === state.pcode }"
-              @click="flyToPcode(state.pcode)"
-            >
-              <span class="bt-state-name">{{ state.name }}</span>
-              <span class="muted">{{ state.pcode }}</span>
-            </button>
-            <div class="bt-lgas">
-              <button
-                v-for="lga in state.lgas"
-                :key="lga.pcode"
-                class="bt-lga bt-btn"
-                :class="{ 'bt-active': activeFeaturePcode === lga.pcode }"
-                @click="flyToPcode(lga.pcode)"
-              >
-                {{ lga.name }} <span class="muted">{{ lga.pcode }}</span>
-              </button>
-              <button
-                v-for="zone in state.zones"
-                :key="zone.zone_pcode"
-                class="bt-zone bt-btn"
-                :class="{ 'bt-active': activeFeaturePcode === zone.zone_pcode }"
-                @click="flyToPcode(zone.zone_pcode)"
-              >
-                <span class="zone-dot-sm" :style="{ background: zone.color ?? '#a78bfa' }"></span>
-                {{ zone.zone_name }} <span class="muted">{{ zone.zone_pcode }}</span>
-              </button>
-            </div>
-          </div>
+          <button
+            v-for="node in flatBoundaryTree"
+            :key="node.pcode"
+            class="bt-btn"
+            :class="{
+              'bt-active': activeFeaturePcode === node.pcode,
+              'bt-state':  node.depth === 0,
+              'bt-zone':   node.isZone,
+              'bt-lga':    !node.isZone && node.depth > 0,
+            }"
+            :style="{ paddingLeft: (node.depth * 12 + 4) + 'px' }"
+            @click="flyToPcode(node.pcode)"
+          >
+            <span v-if="node.isZone" class="zone-dot-sm" :style="{ background: node.color ?? '#a78bfa' }"></span>
+            <span v-if="node.depth === 0" class="bt-state-name">{{ node.name }}</span>
+            <span v-else>{{ node.name }}</span>
+            <span class="muted">{{ node.pcode }}</span>
+            <span v-if="node.level_label && node.depth > 0" class="level-pill">{{ node.level_label }}</span>
+          </button>
         </div>
       </div>
     </aside>
@@ -739,6 +843,15 @@ onUnmounted(() => {
 .bt-lga { color: #cbd5e1; }
 .bt-zone { color: #c4b5fd; }
 .zone-dot-sm { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.level-pill {
+  background: #1e293b;
+  color: #64748b;
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-size: 0.65rem;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
 
 @media (max-width: 800px) {
   .zone-root { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
