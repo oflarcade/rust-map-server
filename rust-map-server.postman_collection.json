@@ -1,0 +1,326 @@
+{
+  "info": {
+    "name": "Rust Map Server",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "NewGlobe multi-tenant vector map tile server API.\n\nBase URL: http://35.239.86.115:8080\nMartin (tile catalog): http://35.239.86.115:3000\n\nTenant IDs:\n  1  = Bridge Kenya\n  2  = Bridge Uganda\n  3  = Bridge Nigeria\n  4  = Bridge Liberia\n  5  = Bridge India (AP)\n  9  = EdoBEST\n  11 = EKOEXCEL (Lagos)\n  12 = Rwanda EQUIP\n  14 = Kwara Learn\n  15 = Manipur Education\n  16 = Bayelsa Prime\n  17 = Espoir CAR\n  18 = Jigawa Unite"
+  },
+  "variable": [
+    { "key": "base_url",   "value": "http://35.239.86.115:8080", "type": "string" },
+    { "key": "martin_url", "value": "http://35.239.86.115:3000", "type": "string" },
+    { "key": "tenant_id",  "value": "18",                        "type": "string", "description": "Active tenant (18 = Jigawa Unite)" },
+    { "key": "zone_id",    "value": "1",                         "type": "string", "description": "Zone ID for PUT/DELETE requests" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/health", "host": ["{{base_url}}"], "path": ["health"] },
+            "description": "No auth required. Returns 200 OK when the stack is up."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Boundaries",
+      "item": [
+        {
+          "name": "GeoJSON — zones + states + LGAs + wards",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Tenant-ID", "value": "{{tenant_id}}" }],
+            "url": {
+              "raw": "{{base_url}}/boundaries/geojson?t={{tenant_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["boundaries", "geojson"],
+              "query": [{ "key": "t", "value": "{{tenant_id}}", "description": "Cache-bust per tenant (matches Vary: X-Tenant-ID)" }]
+            },
+            "description": "Returns a GeoJSON FeatureCollection for the tenant.\n\nfeature_type values:\n  zone        — custom zone polygon (rendered on map)\n  state       — adm1 state polygon\n  lga         — ungrouped adm2 LGA\n  grouped_lga — LGA belonging to a zone (geometry only, for highlight)\n  ward        — adm3 ward (geometry for highlight, not rendered as a layer)"
+          }
+        },
+        {
+          "name": "Hierarchy tree",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Tenant-ID", "value": "{{tenant_id}}" }],
+            "url": {
+              "raw": "{{base_url}}/boundaries/hierarchy?t={{tenant_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["boundaries", "hierarchy"],
+              "query": [{ "key": "t", "value": "{{tenant_id}}", "description": "Cache-bust per tenant" }]
+            },
+            "description": "Returns the full hierarchy tree: country → state → zones → LGAs → wards.\n\nCached in ngx.shared.hierarchy_cache (8 MB, 24 h TTL).\nX-Cache: HIT | MISS in response headers.\n\nFor Jigawa (tenant 18) the tree is:\n  State → Senatorial District → Emirate → Federal Constituency → LGA → Ward"
+          }
+        },
+        {
+          "name": "Hierarchy tree (bypass cache)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Tenant-ID", "value": "{{tenant_id}}" }],
+            "url": {
+              "raw": "{{base_url}}/boundaries/hierarchy?t={{tenant_id}}&_={{$timestamp}}",
+              "host": ["{{base_url}}"],
+              "path": ["boundaries", "hierarchy"],
+              "query": [
+                { "key": "t",  "value": "{{tenant_id}}" },
+                { "key": "_",  "value": "{{$timestamp}}", "description": "Forces a fresh fetch (server still writes to cache)" }
+              ]
+            },
+            "description": "Appending a unique _ param doesn't bypass the ngx.shared cache (keyed by tenant_id only), but is useful for forcing a fresh browser fetch. To truly clear the server cache, restart nginx."
+          }
+        },
+        {
+          "name": "Search",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Tenant-ID", "value": "{{tenant_id}}" }],
+            "url": {
+              "raw": "{{base_url}}/boundaries/search?q=auyo",
+              "host": ["{{base_url}}"],
+              "path": ["boundaries", "search"],
+              "query": [{ "key": "q", "value": "auyo", "description": "Partial name match (case-insensitive). Returns up to 50 results across adm_features + zones." }]
+            },
+            "description": "Case-insensitive partial name search. Returns adm_features and zone rows matching the query.\n\nResponse shape: [{pcode, name, adm_level, parent_pcode}, ...]"
+          }
+        },
+        {
+          "name": "Boundary vector tile",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Tenant-ID", "value": "{{tenant_id}}" }],
+            "url": {
+              "raw": "{{base_url}}/boundaries/12/2402/1911",
+              "host": ["{{base_url}}"],
+              "path": ["boundaries", "12", "2402", "1911"]
+            },
+            "description": "Returns a Mapbox Vector Tile (.mvt) for the boundary PMTiles source at the given z/x/y.\n\nThe tile source is resolved from X-Tenant-ID via the nginx $boundary_source map."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Map Tiles",
+      "item": [
+        {
+          "name": "Base map vector tile",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Tenant-ID", "value": "{{tenant_id}}" }],
+            "url": {
+              "raw": "{{base_url}}/tiles/12/2402/1911",
+              "host": ["{{base_url}}"],
+              "path": ["tiles", "12", "2402", "1911"]
+            },
+            "description": "Returns a Mapbox Vector Tile (.mvt) for the base OSM map at the given z/x/y.\n\nThe tile source (PMTiles file) is resolved from X-Tenant-ID via the nginx $tenant_source map."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Region Lookup",
+      "item": [
+        {
+          "name": "Point-in-polygon — Jigawa (Auyo LGA)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Tenant-ID", "value": "18" }],
+            "url": {
+              "raw": "{{base_url}}/region?lat=12.55&lon=10.05",
+              "host": ["{{base_url}}"],
+              "path": ["region"],
+              "query": [
+                { "key": "lat", "value": "12.55" },
+                { "key": "lon", "value": "10.05" }
+              ]
+            },
+            "description": "Returns the full hierarchy path for a lat/lon point.\n\nResponse (zone hit):\n{\n  \"found\": true,\n  \"matched_level\": \"zone\",\n  \"adm_0\": { \"pcode\": \"NG\", \"name\": \"Nigeria\" },\n  \"adm_1\": { \"pcode\": \"NG018\", \"name\": \"Jigawa\" },\n  \"adm_2\": { ... zone chain ... },\n  \"adm_N\": { \"pcode\": \"NG018001\", \"name\": \"Auyo\" }\n}\n\nResponse (LGA-only hit):\n{\n  \"found\": true,\n  \"matched_level\": \"lga\",\n  \"adm_0\": { \"pcode\": \"NG\", \"name\": \"Nigeria\" },\n  \"adm_1\": { \"pcode\": \"NG018\", \"name\": \"Jigawa\" },\n  \"adm_4\": { \"pcode\": \"NG018001\", \"name\": \"Auyo\" }\n}"
+          }
+        },
+        {
+          "name": "Point-in-polygon — Kenya (with zone)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Tenant-ID", "value": "1" }],
+            "url": {
+              "raw": "{{base_url}}/region?lat=-1.80&lon=40.10",
+              "host": ["{{base_url}}"],
+              "path": ["region"],
+              "query": [
+                { "key": "lat", "value": "-1.80" },
+                { "key": "lon", "value": "40.10" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Point-in-polygon — not found",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Tenant-ID", "value": "{{tenant_id}}" }],
+            "url": {
+              "raw": "{{base_url}}/region?lat=0.0&lon=0.0",
+              "host": ["{{base_url}}"],
+              "path": ["region"],
+              "query": [
+                { "key": "lat", "value": "0.0" },
+                { "key": "lon", "value": "0.0" }
+              ]
+            },
+            "description": "Returns { \"found\": false } when the point is outside all tenant boundaries."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Zone Admin",
+      "item": [
+        {
+          "name": "List zones",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Tenant-ID", "value": "{{tenant_id}}" }],
+            "url": { "raw": "{{base_url}}/admin/zones", "host": ["{{base_url}}"], "path": ["admin", "zones"] },
+            "description": "Returns all zones for the tenant with their metadata and constituent_pcodes."
+          }
+        },
+        {
+          "name": "Create zone",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "X-Tenant-ID",  "value": "{{tenant_id}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"zone_name\": \"My Zone\",\n  \"color\": \"#3b82f6\",\n  \"zone_type_label\": \"Cluster\",\n  \"zone_level\": 1,\n  \"children_type\": \"lga\",\n  \"parent_pcode\": \"NG018\",\n  \"constituent_pcodes\": [\"NG018001\", \"NG018002\"]\n}"
+            },
+            "url": { "raw": "{{base_url}}/admin/zones", "host": ["{{base_url}}"], "path": ["admin", "zones"] },
+            "description": "Creates a new zone. ST_Union geometry is computed from constituent_pcodes on insert.\nInvalidates the hierarchy cache for this tenant.\n\nFields:\n  zone_name          — display name\n  color              — hex color (#rrggbb)\n  zone_type_label    — operator label (e.g. \"Cluster\", \"Senatorial District\")\n  zone_level         — nesting depth (1 = under state, 2 = under level-1 zone, ...)\n  children_type      — \"lga\" (constituent_pcodes are adm_features pcodes)\n                       \"zone\" (constituent_pcodes are child zone_pcodes)\n  parent_pcode       — pcode of the parent (state pcode for level-1 zones)\n  constituent_pcodes — array of child pcodes"
+          }
+        },
+        {
+          "name": "Update zone",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "X-Tenant-ID",  "value": "{{tenant_id}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"zone_name\": \"Updated Zone Name\",\n  \"color\": \"#10b981\",\n  \"constituent_pcodes\": [\"NG018001\", \"NG018002\", \"NG018003\"]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/admin/zones/{{zone_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "zones", "{{zone_id}}"]
+            },
+            "description": "Updates zone name, color, and/or constituent_pcodes. ST_Union geometry is recomputed.\nInvalidates the hierarchy cache for this tenant."
+          }
+        },
+        {
+          "name": "Delete zone",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "X-Tenant-ID", "value": "{{tenant_id}}" }],
+            "url": {
+              "raw": "{{base_url}}/admin/zones/{{zone_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "zones", "{{zone_id}}"]
+            },
+            "description": "Deletes the zone. Constituent LGAs return to the ungrouped pool automatically.\nInvalidates the hierarchy cache for this tenant."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Martin (port 3000)",
+      "item": [
+        {
+          "name": "Tile source catalog",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{martin_url}}/catalog", "host": ["{{martin_url}}"], "path": ["catalog"] },
+            "description": "Lists all configured vector tile sources (base map PMTiles + boundary PMTiles).\nNo auth required. Use this to verify a new PMTiles file was picked up."
+          }
+        },
+        {
+          "name": "Source metadata — Jigawa base tiles",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{martin_url}}/nigeria-jigawa", "host": ["{{martin_url}}"], "path": ["nigeria-jigawa"] },
+            "description": "Returns TileJSON metadata for the nigeria-jigawa PMTiles source (tenant 18)."
+          }
+        },
+        {
+          "name": "Source metadata — Kenya base tiles",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{martin_url}}/kenya-detailed", "host": ["{{martin_url}}"], "path": ["kenya-detailed"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Multi-tenant examples",
+      "item": [
+        {
+          "name": "Hierarchy — Kenya (tenant 1)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Tenant-ID", "value": "1" }],
+            "url": { "raw": "{{base_url}}/boundaries/hierarchy?t=1", "host": ["{{base_url}}"], "path": ["boundaries", "hierarchy"], "query": [{ "key": "t", "value": "1" }] }
+          }
+        },
+        {
+          "name": "Hierarchy — EKOEXCEL Lagos (tenant 11)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Tenant-ID", "value": "11" }],
+            "url": { "raw": "{{base_url}}/boundaries/hierarchy?t=11", "host": ["{{base_url}}"], "path": ["boundaries", "hierarchy"], "query": [{ "key": "t", "value": "11" }] }
+          }
+        },
+        {
+          "name": "Hierarchy — Jigawa (tenant 18)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Tenant-ID", "value": "18" }],
+            "url": { "raw": "{{base_url}}/boundaries/hierarchy?t=18", "host": ["{{base_url}}"], "path": ["boundaries", "hierarchy"], "query": [{ "key": "t", "value": "18" }] }
+          }
+        },
+        {
+          "name": "GeoJSON — Kenya (tenant 1)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Tenant-ID", "value": "1" }],
+            "url": { "raw": "{{base_url}}/boundaries/geojson?t=1", "host": ["{{base_url}}"], "path": ["boundaries", "geojson"], "query": [{ "key": "t", "value": "1" }] }
+          }
+        },
+        {
+          "name": "Search — Kenya (tenant 1)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Tenant-ID", "value": "1" }],
+            "url": { "raw": "{{base_url}}/boundaries/search?q=nairo", "host": ["{{base_url}}"], "path": ["boundaries", "search"], "query": [{ "key": "q", "value": "nairo" }] }
+          }
+        },
+        {
+          "name": "Search — Jigawa ward (tenant 18)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-Tenant-ID", "value": "18" }],
+            "url": { "raw": "{{base_url}}/boundaries/search?q=arbus", "host": ["{{base_url}}"], "path": ["boundaries", "search"], "query": [{ "key": "q", "value": "arbus" }] }
+          }
+        }
+      ]
+    }
+  ]
+}

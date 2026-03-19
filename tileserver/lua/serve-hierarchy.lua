@@ -46,12 +46,19 @@ end
 -- ---------------------------------------------------------------------------
 local adm_by_pcode    = {}   -- pcode -> row
 local adm3plus_by_parent = {} -- parent_pcode -> [adm3+ rows]  (adm_level >= 3)
+local adm2_by_parent  = {}   -- parent_pcode -> [adm2 rows]   (districts/LGAs)
 local states_list = {}        -- adm_level=1 rows, ordered
 
 for _, a in ipairs(adm_rows or {}) do
     adm_by_pcode[a.pcode] = a
     if tonumber(a.adm_level) == 1 then
         table.insert(states_list, a)
+    elseif tonumber(a.adm_level) == 2 then
+        if a.parent_pcode then
+            local list = adm2_by_parent[a.parent_pcode] or {}
+            table.insert(list, a)
+            adm2_by_parent[a.parent_pcode] = list
+        end
     elseif tonumber(a.adm_level) >= 3 then
         if a.parent_pcode then
             local list = adm3plus_by_parent[a.parent_pcode] or {}
@@ -106,11 +113,12 @@ for _, l in ipairs(lgas_rows or {}) do
     if l.parent_pcode then
         local list = lgas_by_state[l.parent_pcode] or {}
         table.insert(list, {
-            pcode      = l.pcode,
-            name       = l.name,
-            area_sqkm  = tonumber(l.area_sqkm),
-            center_lat = tonumber(l.center_lat),
-            center_lon = tonumber(l.center_lon),
+            pcode       = l.pcode,
+            name        = l.name,
+            level_label = l.level_label,
+            area_sqkm   = tonumber(l.area_sqkm),
+            center_lat  = tonumber(l.center_lat),
+            center_lon  = tonumber(l.center_lon),
         })
         lgas_by_state[l.parent_pcode] = list
     end
@@ -142,6 +150,25 @@ local function build_children(parent_pcode, depth)
         table.insert(children, node)
     end
 
+    -- adm2 features parented here — only when no zones cover this level
+    -- (e.g. Rwanda: Province → District → Sector, no zones)
+    if not zones_by_parent[parent_pcode] then
+        for _, a in ipairs(adm2_by_parent[parent_pcode] or {}) do
+            local node = {
+                pcode       = a.pcode,
+                name        = a.name,
+                level       = 2,
+                level_label = a.level_label,
+                area_sqkm   = tonumber(a.area_sqkm),
+                center_lat  = tonumber(a.center_lat),
+                center_lon  = tonumber(a.center_lon),
+            }
+            local sub = build_children(a.pcode, depth + 1)
+            if sub and #sub > 0 then node.children = sub end
+            table.insert(children, node)
+        end
+    end
+
     -- zones parented here (any zone_level)
     for _, z in ipairs(zones_by_parent[parent_pcode] or {}) do
         local node = {
@@ -156,7 +183,31 @@ local function build_children(parent_pcode, depth)
         }
         -- recurse into child zones
         local sub = build_children(z.zone_pcode, depth + 1)
-        if sub and #sub > 0 then node.children = sub end
+        if sub and #sub > 0 then
+            node.children = sub
+        elseif z.children_type == "lga" then
+            -- leaf zone: attach constituent LGAs looked up from adm_by_pcode
+            -- each LGA node also gets its own children (e.g. wards) via build_children
+            local lga_children = {}
+            for _, pcode in ipairs(z.constituent_pcodes) do
+                local lga = adm_by_pcode[pcode]
+                if lga then
+                    local lga_node = {
+                        pcode       = lga.pcode,
+                        name        = lga.name,
+                        level       = tonumber(lga.adm_level),
+                        level_label = lga.level_label,
+                        area_sqkm   = tonumber(lga.area_sqkm),
+                        center_lat  = tonumber(lga.center_lat),
+                        center_lon  = tonumber(lga.center_lon),
+                    }
+                    local sub = build_children(lga.pcode, depth + 1)
+                    if sub and #sub > 0 then lga_node.children = sub end
+                    table.insert(lga_children, lga_node)
+                end
+            end
+            if #lga_children > 0 then node.children = lga_children end
+        end
         table.insert(children, node)
     end
 

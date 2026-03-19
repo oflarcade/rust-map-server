@@ -14,6 +14,8 @@ export interface TenantConfig {
   boundarySource: string;
   /** Optional HDX COD-AB boundary tiles source key for this tenant. */
   hdxBoundarySource?: string | null;
+  /** Term for the lowest-level admin unit this tenant manages. Defaults to 'LGA'. */
+  lgaLabel?: string;
 }
 
 export const TENANTS: TenantConfig[] = [

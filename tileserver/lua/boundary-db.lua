@@ -21,6 +21,7 @@ function M.get_geojson(tenant_id)
             'zone'               AS feature_type,
             z.parent_pcode,
             z.color,
+            z.zone_level,
             array_to_string(z.constituent_pcodes, ',') AS constituent_pcodes
         FROM zones z
         WHERE z.tenant_id = $1
@@ -35,6 +36,7 @@ function M.get_geojson(tenant_id)
             'state'              AS feature_type,
             a.parent_pcode,
             NULL                 AS color,
+            NULL::SMALLINT       AS zone_level,
             NULL                 AS constituent_pcodes
         FROM adm_features a
         WHERE a.adm_level = 1
@@ -55,6 +57,7 @@ function M.get_geojson(tenant_id)
             'lga'                AS feature_type,
             a.parent_pcode,
             NULL                 AS color,
+            NULL::SMALLINT       AS zone_level,
             NULL                 AS constituent_pcodes
         FROM adm_features a
         JOIN tenant_scope ts ON ts.pcode = a.pcode AND ts.tenant_id = $1
@@ -62,8 +65,46 @@ function M.get_geojson(tenant_id)
           AND a.pcode NOT IN (
               SELECT UNNEST(constituent_pcodes)
               FROM zones
-              WHERE tenant_id = $1
+              WHERE tenant_id = $1 AND children_type = 'lga'
           )
+
+        UNION ALL
+
+        -- Grouped LGAs: geometry only, for client-side highlight lookups (not rendered)
+        SELECT
+            ST_AsGeoJSON(a.geom) AS geometry,
+            a.pcode,
+            a.name,
+            'grouped_lga'        AS feature_type,
+            a.parent_pcode,
+            NULL                 AS color,
+            NULL::SMALLINT       AS zone_level,
+            NULL                 AS constituent_pcodes
+        FROM adm_features a
+        JOIN tenant_scope ts ON ts.pcode = a.pcode AND ts.tenant_id = $1
+        WHERE a.adm_level = 2
+          AND a.pcode IN (
+              SELECT UNNEST(constituent_pcodes)
+              FROM zones
+              WHERE tenant_id = $1 AND children_type = 'lga'
+          )
+
+        UNION ALL
+
+        -- adm3+ features: geometry for client-side highlight (not rendered as a layer)
+        -- Covers Wards (NG), Sectors (RW), and any other sub-district admin level
+        SELECT
+            ST_AsGeoJSON(a.geom) AS geometry,
+            a.pcode,
+            a.name,
+            'ward'               AS feature_type,
+            a.parent_pcode,
+            NULL                 AS color,
+            NULL::SMALLINT       AS zone_level,
+            NULL                 AS constituent_pcodes
+        FROM adm_features a
+        JOIN tenant_scope ts ON ts.pcode = a.pcode AND ts.tenant_id = $1
+        WHERE a.adm_level >= 3
     ]]
     return pg.exec(sql, {tenant_id})
 end
@@ -103,7 +144,7 @@ end
 
 function M.get_hierarchy_lgas(tenant_id)
     local sql = [[
-        SELECT a.pcode, a.name, a.parent_pcode, a.area_sqkm, a.center_lat, a.center_lon
+        SELECT a.pcode, a.name, a.parent_pcode, a.level_label, a.area_sqkm, a.center_lat, a.center_lon
         FROM adm_features a
         JOIN tenant_scope ts ON ts.pcode = a.pcode AND ts.tenant_id = $1
         WHERE a.adm_level = 2

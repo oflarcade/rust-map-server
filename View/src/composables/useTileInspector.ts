@@ -27,6 +27,7 @@ export interface BoundarySummary {
 export interface HierarchyLGA {
   pcode: string;
   name: string;
+  level_label?: string;
   area_sqkm?: number;
   center_lat?: number;
   center_lon?: number;
@@ -35,19 +36,41 @@ export interface HierarchyLGA {
 export interface HierarchyZone {
   zone_pcode: string;
   zone_name: string;
+  name?: string;
+  level_label?: string;
   color?: string;
   parent_pcode: string;
   constituent_pcodes: string[];
+  zone_level?: number;
+  zone_type_label?: string;
+  is_zone?: boolean;
+  children?: HierarchyChild[];
 }
+
+export interface HierarchyAdmNode {
+  pcode: string;
+  name: string;
+  level?: number;
+  level_label?: string;
+  area_sqkm?: number;
+  center_lat?: number;
+  center_lon?: number;
+  is_zone?: false;
+  children?: HierarchyAdmNode[];
+}
+
+export type HierarchyChild = HierarchyZone | HierarchyAdmNode;
 
 export interface HierarchyState {
   pcode: string;
   name: string;
+  level_label?: string;
   area_sqkm?: number;
   center_lat?: number;
   center_lon?: number;
   lgas: HierarchyLGA[];
   zones?: HierarchyZone[];
+  children?: HierarchyChild[];
 }
 
 export interface HierarchyData {
@@ -103,6 +126,7 @@ let map: Map | null = null;
 let inspectorPopup: maplibregl.Popup | null = null;
 const baseMeta = reactive<Record<string, any>>({});
 const boundaryMeta = reactive<Record<string, any>>({});
+let allBoundaryFeatures: GeoJSON.Feature[] = [];
 
 let watcherRegistered = false;
 
@@ -279,9 +303,11 @@ export function useTileInspector() {
       { id: 'roads-major', group: 'base', label: 'Major roads', layers: ['base-roads-major'], visible: true },
       { id: 'buildings', group: 'base', label: 'Buildings', layers: ['base-buildings'], visible: true },
       { id: 'places', group: 'base', label: 'Places', layers: ['base-place-label'], visible: true },
+      { id: 'zones', group: 'boundary', label: 'Administrative areas', layers: ['zones-fill', 'zones-outline'], visible: true },
       { id: 'boundary-fill', group: 'boundary', label: 'Boundary areas', layers: ['boundary-fill'], visible: true },
       { id: 'boundary-state', group: 'boundary', label: 'State lines', layers: ['boundary-state-line'], visible: true },
       { id: 'boundary-lga', group: 'boundary', label: 'LGA lines', layers: ['boundary-lga-line'], visible: true },
+      { id: 'boundary-ward', group: 'boundary', label: 'Ward/Sector lines', layers: ['ward-outline'], visible: true },
       { id: 'boundary-state-label', group: 'boundary', label: 'State labels', layers: ['boundary-state-label'], visible: true },
       { id: 'boundary-lga-label', group: 'boundary', label: 'LGA labels', layers: ['boundary-lga-label'], visible: true },
     ];
@@ -352,65 +378,47 @@ export function useTileInspector() {
     }
   }
 
-  function highlightBoundary(name: string | null): void {
+  type HighlightItem = { pcode: string; level: 'state' | 'lga' | 'zone'; name?: string };
+
+  const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
+
+  function setHighlightFeatures(features: GeoJSON.Feature[]) {
+    const src = map?.getSource('highlight-overlay') as maplibregl.GeoJSONSource | undefined;
+    if (src) src.setData({ type: 'FeatureCollection', features } as any);
+  }
+
+  function resetZonePaint() {
+    if (map?.getLayer('zones-fill')) map.setPaintProperty('zones-fill', 'fill-opacity', 0);
+    if (map?.getLayer('zones-outline')) map.setPaintProperty('zones-outline', 'line-opacity', 1);
+  }
+
+  function highlightBoundary(item: HighlightItem | null): void {
     if (!map) return;
 
-    if (!name) {
-      if (map.getLayer('boundary-fill')) {
-        map.setPaintProperty('boundary-fill', 'fill-opacity', 0.15);
-        map.setPaintProperty('boundary-fill', 'fill-color', '#60a5fa');
+    if (!item) {
+      setHighlightFeatures([]);
+      resetZonePaint();
+      return;
+    }
+
+    const { pcode, level } = item;
+
+    if (level === 'zone') {
+      setHighlightFeatures([]);
+      const matchZone: any = ['==', ['get', 'pcode'], pcode];
+      if (map.getLayer('zones-fill')) {
+        map.setPaintProperty('zones-fill', 'fill-opacity', ['case', matchZone, 0.5, 0]);
       }
-      if (map.getLayer('boundary-state-line')) {
-        map.setPaintProperty('boundary-state-line', 'line-opacity', 1);
-        map.setPaintProperty('boundary-state-line', 'line-color', '#2563eb');
-      }
-      if (map.getLayer('boundary-lga-line')) {
-        map.setPaintProperty('boundary-lga-line', 'line-opacity', 1);
-        map.setPaintProperty('boundary-lga-line', 'line-color', '#6366f1');
-      }
-      if (map.getLayer('boundary-state-label')) {
-        map.setPaintProperty('boundary-state-label', 'text-opacity', 1);
-      }
-      if (map.getLayer('boundary-lga-label')) {
-        map.setPaintProperty('boundary-lga-label', 'text-opacity', 1);
+      if (map.getLayer('zones-outline')) {
+        map.setPaintProperty('zones-outline', 'line-opacity', ['case', matchZone, 1, 0.3]);
       }
       return;
     }
 
-    const matchByState: any = ['==', ['get', 'adm1_name'], name];
-    const matchByLga: any = ['==', ['get', 'adm2_name'], name];
-    const matchAny: any = ['any', matchByState, matchByLga, ['==', ['get', 'name'], name]];
-
-    if (map.getLayer('boundary-fill')) {
-      map.setPaintProperty('boundary-fill', 'fill-opacity', [
-        'case', matchAny, 0.5, 0.06,
-      ]);
-      map.setPaintProperty('boundary-fill', 'fill-color', [
-        'case', matchAny, '#3b82f6', '#94a3b8',
-      ]);
-    }
-    if (map.getLayer('boundary-state-line')) {
-      map.setPaintProperty('boundary-state-line', 'line-opacity', 1);
-      map.setPaintProperty('boundary-state-line', 'line-color', '#2563eb');
-    }
-    if (map.getLayer('boundary-lga-line')) {
-      map.setPaintProperty('boundary-lga-line', 'line-opacity', [
-        'case', matchAny, 1, 0.08,
-      ]);
-      map.setPaintProperty('boundary-lga-line', 'line-color', [
-        'case', matchAny, '#6366f1', '#64748b',
-      ]);
-    }
-    if (map.getLayer('boundary-state-label')) {
-      map.setPaintProperty('boundary-state-label', 'text-opacity', [
-        'case', matchByState, 1, 0.15,
-      ]);
-    }
-    if (map.getLayer('boundary-lga-label')) {
-      map.setPaintProperty('boundary-lga-label', 'text-opacity', [
-        'case', matchAny, 1, 0.15,
-      ]);
-    }
+    // state or lga: find geometry in PostGIS GeoJSON features (includes grouped_lga for highlight)
+    resetZonePaint();
+    const feature = allBoundaryFeatures.find((f) => f.properties?.pcode === pcode);
+    setHighlightFeatures(feature ? [feature] : []);
   }
 
   function highlight(text: string, query: string): string {
@@ -426,10 +434,96 @@ export function useTileInspector() {
     );
   }
 
+  async function loadZoneOverlay(): Promise<void> {
+    if (!map) return;
+    const PROXY = normalizeBaseUrl(DEFAULT_PROXY_URL);
+    const tid = selectedTenantId.value;
+    try {
+      const res = await fetch(`${PROXY}/boundaries/geojson?t=${tid}`, {
+        headers: { 'X-Tenant-ID': tid },
+      });
+      if (!res.ok || !map) return;
+      const geojson = await res.json();
+
+      // Store all features for highlight lookups (state, lga, zone all have pcode)
+      allBoundaryFeatures = geojson.features ?? [];
+
+      const zoneFeatures = allBoundaryFeatures.filter(
+        (f: any) => f.properties?.feature_type === 'zone',
+      );
+      const zoneCollection = { type: 'FeatureCollection', features: zoneFeatures };
+
+      if (map.getSource('zones-overlay')) {
+        (map.getSource('zones-overlay') as maplibregl.GeoJSONSource).setData(zoneCollection as any);
+      } else {
+        map.addSource('zones-overlay', { type: 'geojson', data: zoneCollection as any });
+        // Fill starts hidden — only shown on click
+        map.addLayer({
+          id: 'zones-fill',
+          type: 'fill',
+          source: 'zones-overlay',
+          paint: {
+            'fill-color': ['coalesce', ['get', 'color'], '#a78bfa'],
+            'fill-opacity': 0,
+          },
+        } as any, 'boundary-state-label');
+        map.addLayer({
+          id: 'zones-outline',
+          type: 'line',
+          source: 'zones-overlay',
+          paint: {
+            'line-color': ['coalesce', ['get', 'color'], '#a78bfa'],
+            'line-width': ['case', ['==', ['get', 'zone_level'], 1], 2, 1.5],
+          },
+        } as any, 'boundary-state-label');
+      }
+
+      // When zones exist, hide the PMTiles LGA/boundary lines to avoid double outlines
+      if (zoneFeatures.length > 0) {
+        for (const layerId of ['boundary-fill', 'boundary-lga-line', 'boundary-state-line']) {
+          if (map.getLayer(layerId)) map.setLayoutProperty(layerId, 'visibility', 'none');
+        }
+      }
+
+      // adm3+ features (Wards, Sectors, etc.): render as subtle outlines visible when zoomed in
+      const wardFeatures = allBoundaryFeatures.filter(
+        (f: any) => f.properties?.feature_type === 'ward',
+      );
+      const wardCollection = { type: 'FeatureCollection', features: wardFeatures };
+      if (map.getSource('ward-overlay')) {
+        (map.getSource('ward-overlay') as maplibregl.GeoJSONSource).setData(wardCollection as any);
+      } else if (wardFeatures.length > 0) {
+        map.addSource('ward-overlay', { type: 'geojson', data: wardCollection as any });
+        map.addLayer({
+          id: 'ward-outline',
+          type: 'line',
+          source: 'ward-overlay',
+          minzoom: 8,
+          paint: {
+            'line-color': '#64748b',
+            'line-width': 0.75,
+            'line-opacity': 0.6,
+          },
+        } as any);
+      }
+
+      // Highlight overlay — separate source so we can show any single feature
+      if (!map.getSource('highlight-overlay')) {
+        map.addSource('highlight-overlay', { type: 'geojson', data: EMPTY_FC as any });
+        map.addLayer({
+          id: 'highlight-fill',
+          type: 'fill',
+          source: 'highlight-overlay',
+          paint: { 'fill-color': '#3b82f6', 'fill-opacity': 0.55 },
+        } as any);
+      }
+    } catch { /* silently skip if geojson unavailable */ }
+  }
+
   async function loadHierarchy(): Promise<void> {
     const PROXY = normalizeBaseUrl(DEFAULT_PROXY_URL);
     try {
-      const res = await fetch(`${PROXY}/boundaries/hierarchy?t=${selectedTenantId.value}`, {
+      const res = await fetch(`${PROXY}/boundaries/hierarchy?t=${selectedTenantId.value}&_=${Date.now()}`, {
         headers: { 'X-Tenant-ID': selectedTenantId.value },
       });
       boundaryHierarchy.value = res.ok ? await res.json() : null;
@@ -440,6 +534,7 @@ export function useTileInspector() {
 
   async function reloadTenant(): Promise<void> {
     const tenant = currentTenant.value;
+    allBoundaryFeatures = [];
     resetMeta(baseMeta);
     resetMeta(boundaryMeta);
 
@@ -477,6 +572,7 @@ export function useTileInspector() {
 
     map.once('load', () => {
       initMapInteractions();
+      loadZoneOverlay();
     });
 
     map.on('idle', () => {

@@ -76,6 +76,19 @@ const parentOptions = computed<Array<{ pcode: string; label: string; level: numb
   return opts;
 });
 
+const selectedTenantConfig = computed(() => getTenantById(selectedTenantId.value));
+const lgaLabel = computed(() => selectedTenantConfig.value?.lgaLabel ?? 'LGA');
+
+const lgaNameMap = computed<Record<string, string>>(() => {
+  const m: Record<string, string> = {};
+  for (const f of allFeatures.value) {
+    if (f.properties?.feature_type === 'lga' && f.properties?.pcode) {
+      m[f.properties.pcode] = f.properties.name ?? f.properties.pcode;
+    }
+  }
+  return m;
+});
+
 // ---------------------------------------------------------------------------
 // Derived: flat boundary tree for variable-depth rendering
 // ---------------------------------------------------------------------------
@@ -339,12 +352,14 @@ async function initMap(tenant: TenantConfig) {
       paint: { 'line-color': '#60a5fa', 'line-width': 1 },
     });
 
-    // Zone fill layer (uses stored color per feature)
+    // Zone layers — level 2 (FC/operational) = colored fill; level 1 (Senatorial) = thick stroke only
     map!.addSource('zones', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    // Level-2 zones: colored fill (operational / FC level)
     map!.addLayer({
       id: 'zones-fill',
       type: 'fill',
       source: 'zones',
+      filter: ['any', ['==', ['get', 'zone_level'], 2], ['!', ['has', 'zone_level']]],
       paint: {
         'fill-color': ['coalesce', ['get', 'color'], '#a78bfa'],
         'fill-opacity': 0.45,
@@ -354,7 +369,16 @@ async function initMap(tenant: TenantConfig) {
       id: 'zones-outline',
       type: 'line',
       source: 'zones',
+      filter: ['any', ['==', ['get', 'zone_level'], 2], ['!', ['has', 'zone_level']]],
       paint: { 'line-color': ['coalesce', ['get', 'color'], '#a78bfa'], 'line-width': 2 },
+    });
+    // Level-1 zones: thick stroke only, no fill (Senatorial / top-level boundary)
+    map!.addLayer({
+      id: 'zones-outline-level1',
+      type: 'line',
+      source: 'zones',
+      filter: ['==', ['get', 'zone_level'], 1],
+      paint: { 'line-color': ['coalesce', ['get', 'color'], '#f59e0b'], 'line-width': 4, 'line-dasharray': [4, 2] },
     });
 
     // State layers (transparent fill for clicks, outline on top)
@@ -401,10 +425,22 @@ async function initMap(tenant: TenantConfig) {
       if (info) showFeaturePopup([e.lngLat.lng, e.lngLat.lat], info.name, info.parentName, info.type);
     });
 
+    // Click on level-1 zone outline: populate edit form
+    map!.on('click', 'zones-outline-level1', (e) => {
+      const feat = e.features?.[0];
+      if (!feat) return;
+      const zpcode = feat.properties?.pcode as string;
+      const zone   = existingZones.value.find(z => z.zone_pcode === zpcode);
+      if (zone) startEdit(zone);
+      activeFeaturePcode.value = zpcode;
+      const info = getFeatureInfo(zpcode);
+      if (info) showFeaturePopup([e.lngLat.lng, e.lngLat.lat], info.name, info.parentName, info.type);
+    });
+
     // Click on state (only when no LGA/zone underneath)
     map!.on('click', 'states-fill', (e) => {
       const lgaUnder  = map!.queryRenderedFeatures(e.point, { layers: ['lgas-fill'] });
-      const zoneUnder = map!.queryRenderedFeatures(e.point, { layers: ['zones-fill'] });
+      const zoneUnder = map!.queryRenderedFeatures(e.point, { layers: ['zones-fill', 'zones-outline-level1'] });
       if (lgaUnder.length > 0 || zoneUnder.length > 0) return;
       const feat = e.features?.[0];
       if (!feat) return;
@@ -416,8 +452,10 @@ async function initMap(tenant: TenantConfig) {
 
     map!.on('mouseenter', 'lgas-fill',   () => { map!.getCanvas().style.cursor = 'pointer'; });
     map!.on('mouseleave', 'lgas-fill',   () => { map!.getCanvas().style.cursor = ''; });
-    map!.on('mouseenter', 'zones-fill',  () => { map!.getCanvas().style.cursor = 'pointer'; });
-    map!.on('mouseleave', 'zones-fill',  () => { map!.getCanvas().style.cursor = ''; });
+    map!.on('mouseenter', 'zones-fill',           () => { map!.getCanvas().style.cursor = 'pointer'; });
+    map!.on('mouseleave', 'zones-fill',           () => { map!.getCanvas().style.cursor = ''; });
+    map!.on('mouseenter', 'zones-outline-level1', () => { map!.getCanvas().style.cursor = 'pointer'; });
+    map!.on('mouseleave', 'zones-outline-level1', () => { map!.getCanvas().style.cursor = ''; });
     map!.on('mouseenter', 'states-fill', () => { map!.getCanvas().style.cursor = 'pointer'; });
     map!.on('mouseleave', 'states-fill', () => { map!.getCanvas().style.cursor = ''; });
 
@@ -587,7 +625,7 @@ onUnmounted(() => {
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar-header">
-        <h2 class="sidebar-title">Zone Manager</h2>
+        <h2 class="sidebar-title">Tenant Administrative Manager</h2>
         <button class="back-btn" @click="router.push('/inspector')">← Inspector</button>
       </div>
 
@@ -605,17 +643,17 @@ onUnmounted(() => {
 
       <!-- Zone form -->
       <div class="form-group">
-        <label>Zone Name</label>
+        <label>Area Name</label>
         <input v-model="zoneName" type="text" class="input" placeholder="e.g. Mainland Cluster" />
       </div>
 
       <div class="form-group">
-        <label>Zone Type <span class="muted">(optional)</span></label>
-        <input v-model="zoneTypeLabel" type="text" class="input" placeholder="e.g. Operational Zone" />
+        <label>Area Type <span class="muted">(optional)</span></label>
+        <input v-model="zoneTypeLabel" type="text" class="input" placeholder="e.g. Operational Area" />
       </div>
 
       <div class="form-group" v-if="parentOptions.length > 0">
-        <label>Parent <span class="muted">(state or zone)</span></label>
+        <label>Parent <span class="muted">(state or area)</span></label>
         <select v-model="zoneParentPcode" class="select">
           <option value="">— auto-detect from selection —</option>
           <option v-for="opt in parentOptions" :key="opt.pcode" :value="opt.pcode">
@@ -633,23 +671,23 @@ onUnmounted(() => {
       </div>
 
       <div class="form-group">
-        <label>Selected LGAs <span class="badge">{{ selectedLgas.length }}</span></label>
+        <label>Selected {{ lgaLabel }}s <span class="badge">{{ selectedLgas.length }}</span></label>
         <div class="lga-list" v-if="selectedLgas.length > 0">
           <span v-for="p in selectedLgas" :key="p" class="lga-chip">
-            {{ p }}
+            {{ lgaNameMap[p] ? `${lgaNameMap[p]} (${p})` : p }}
             <button class="chip-remove" @click="selectedLgas.splice(selectedLgas.indexOf(p), 1); refreshSelectionLayer()">×</button>
           </span>
         </div>
-        <p class="hint" v-else>Click LGA polygons on the map to select them</p>
+        <p class="hint" v-else>Click {{ lgaLabel }} polygons on the map to select them</p>
       </div>
 
       <div class="btn-row" v-if="!editingZone">
-        <button class="btn btn-primary" @click="createZone">Create Zone</button>
+        <button class="btn btn-primary" @click="createZone">Create Area</button>
         <button class="btn btn-secondary" @click="loadBoundaries">Refresh</button>
       </div>
       <div class="btn-row" v-else>
         <button class="btn btn-primary"  @click="updateZone">Save Changes</button>
-        <button class="btn btn-danger"   @click="deleteZone">Delete Zone</button>
+        <button class="btn btn-danger"   @click="deleteZone">Delete Area</button>
         <button class="btn btn-secondary" @click="clearForm">Cancel</button>
       </div>
 
@@ -660,7 +698,7 @@ onUnmounted(() => {
 
       <!-- Existing zones list -->
       <div v-if="existingZones.length > 0">
-        <label>Existing Zones</label>
+        <label>Existing Areas</label>
         <div class="zone-list">
           <div
             v-for="z in existingZones" :key="z.zone_id"

@@ -35,6 +35,9 @@ for _, row in ipairs(rows or {}) do
         if row.color and row.color ~= "" then
             props.color = row.color
         end
+        if row.zone_level then
+            props.zone_level = tonumber(row.zone_level)
+        end
         if row.constituent_pcodes and row.constituent_pcodes ~= "" then
             props.constituent_pcodes = row.constituent_pcodes
         end

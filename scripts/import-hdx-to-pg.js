@@ -13,6 +13,7 @@
 const path = require('path');
 const fs   = require('fs');
 const { Client } = require('pg');
+const { getLabel } = require('./admin-level-labels');
 
 const HDX_DIR = path.join(__dirname, '../data/hdx');
 
@@ -138,15 +139,16 @@ async function importAdmFeatures(client) {
         const centerLat = p.center_lat || null;
         const centerLon = p.center_lon || null;
 
-        const geomJson = JSON.stringify(feat.geometry);
+        const geomJson   = JSON.stringify(feat.geometry);
+        const levelLabel = getLabel(countryCode, admLevel);
 
         await client.query(`
           INSERT INTO adm_features
-            (country_code, adm_level, pcode, name, parent_pcode, geom, area_sqkm, center_lat, center_lon)
+            (country_code, adm_level, pcode, name, parent_pcode, geom, area_sqkm, center_lat, center_lon, level_label)
           VALUES (
             $1, $2, $3, $4, $5,
             ST_Multi(ST_GeomFromGeoJSON($6)),
-            $7, $8, $9
+            $7, $8, $9, $10
           )
           ON CONFLICT (pcode) DO UPDATE SET
             country_code = EXCLUDED.country_code,
@@ -156,8 +158,9 @@ async function importAdmFeatures(client) {
             geom         = EXCLUDED.geom,
             area_sqkm    = EXCLUDED.area_sqkm,
             center_lat   = EXCLUDED.center_lat,
-            center_lon   = EXCLUDED.center_lon
-        `, [countryCode, admLevel, pcode, name, parentPcode, geomJson, areaSqkm, centerLat, centerLon]);
+            center_lon   = EXCLUDED.center_lon,
+            level_label  = EXCLUDED.level_label
+        `, [countryCode, admLevel, pcode, name, parentPcode, geomJson, areaSqkm, centerLat, centerLon, levelLabel]);
 
         inserted++;
       }
@@ -181,29 +184,22 @@ async function importAdmFeatures(client) {
 
   ok(`Total adm_features inserted/updated: ${totalInserted}`);
 
-  // Set level_label for adm3+ rows based on country/level
-  // Update this map as new countries/levels are imported.
-  const LEVEL_LABELS = [
-    { country_code: 'NG', adm_level: 3, label: 'Senatorial District' },
-    { country_code: 'NG', adm_level: 4, label: 'Federal Constituency' },
-    { country_code: 'NG', adm_level: 5, label: 'Ward' },
-    { country_code: 'KE', adm_level: 3, label: 'Ward' },
-    { country_code: 'UG', adm_level: 3, label: 'Parish' },
-    { country_code: 'LR', adm_level: 3, label: 'Clan' },
-    { country_code: 'CF', adm_level: 3, label: 'Sub-prefecture' },
-    { country_code: 'RW', adm_level: 3, label: 'Sector' },
-    { country_code: 'RW', adm_level: 4, label: 'Cell' },
-    { country_code: 'IN', adm_level: 3, label: 'Mandal' },
-  ];
-
-  log('Setting level_label for adm3+ rows...');
-  for (const { country_code, adm_level, label } of LEVEL_LABELS) {
-    const res = await client.query(`
-      UPDATE adm_features SET level_label = $1
-      WHERE country_code = $2 AND adm_level = $3 AND level_label IS NULL
-    `, [label, country_code, adm_level]);
-    if (res.rowCount > 0) {
-      ok(`  ${country_code} adm${adm_level}: set level_label="${label}" on ${res.rowCount} rows`);
+  // level_label is now set per-row during INSERT above via admin-level-labels.js.
+  // This pass catches any rows where level_label is still NULL (e.g. rows imported
+  // before this change, or countries not in the shared table).
+  // Note: rows with an explicit label (INEC 'Senatorial District', GRID3 'Ward')
+  // are never NULL so they are unaffected.
+  log('Backfilling any remaining NULL level_label rows...');
+  const { ADM_LEVEL_LABELS } = require('./admin-level-labels');
+  for (const [cc, levels] of Object.entries(ADM_LEVEL_LABELS)) {
+    for (const [lvl, label] of Object.entries(levels)) {
+      const res = await client.query(`
+        UPDATE adm_features SET level_label = $1
+        WHERE country_code = $2 AND adm_level = $3 AND level_label IS NULL
+      `, [label, cc, parseInt(lvl)]);
+      if (res.rowCount > 0) {
+        ok(`  ${cc} adm${lvl}: backfilled level_label="${label}" on ${res.rowCount} rows`);
+      }
     }
   }
 }
