@@ -18,8 +18,8 @@ import LayerControl from '../components/LayerControl.vue';
   display: grid;
   grid-template-columns: 360px 1fr;
   height: 100vh;
-  background: #020617;
-  color: #e5e7eb;
+  background: #f1f5f9;
+  color: #1e293b;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
     sans-serif;
 }

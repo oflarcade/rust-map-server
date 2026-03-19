@@ -124,6 +124,9 @@ watch(boundarySearch, (q) => {
       <button class="nav-btn" @click="router.push('/admin/zones')">
         Tenant Administrative Manager →
       </button>
+      <button class="nav-btn nav-btn-secondary" @click="router.push('/country/' + currentTenant.countryCode)">
+        View All {{ currentTenant.countryCode }} Tenants →
+      </button>
     </div>
 
     <!-- Search -->
@@ -347,18 +350,18 @@ watch(boundarySearch, (q) => {
 
 <style scoped>
 .boundary-explorer {
-  background: #020617;
-  color: #e5e7eb;
+  background: #f8fafc;
+  color: #1e293b;
   overflow-y: auto;
   padding: 14px;
-  border-right: 1px solid #1f2937;
+  border-right: 1px solid #e2e8f0;
   height: 100%;
 }
 
 .section {
   margin-top: 12px;
   padding-top: 10px;
-  border-top: 1px solid #1f2937;
+  border-top: 1px solid #e2e8f0;
 }
 
 .section:first-child {
@@ -370,15 +373,15 @@ watch(boundarySearch, (q) => {
 .subhead {
   font-size: 13px;
   margin-bottom: 6px;
-  color: #cbd5e1;
+  color: #334155;
   font-weight: 600;
 }
 
 .input {
   width: 100%;
-  background: #020617;
-  color: #e5e7eb;
-  border: 1px solid #334155;
+  background: #ffffff;
+  color: #1e293b;
+  border: 1px solid #cbd5e1;
   border-radius: 6px;
   padding: 8px;
   font-size: 13px;
@@ -399,7 +402,7 @@ watch(boundarySearch, (q) => {
   transform: translateY(-50%);
   background: none;
   border: none;
-  color: #6b7280;
+  color: #94a3b8;
   cursor: pointer;
   font-size: 16px;
   line-height: 1;
@@ -407,18 +410,18 @@ watch(boundarySearch, (q) => {
 }
 
 .search-clear:hover {
-  color: #e5e7eb;
+  color: #1e293b;
 }
 
 .search-counts {
   font-size: 11px;
-  color: #6b7280;
+  color: #94a3b8;
   margin-top: 6px;
 }
 
 .hierarchy-tree {
   overflow-y: auto;
-  border: 1px solid #1f2937;
+  border: 1px solid #e2e8f0;
   border-radius: 6px;
   padding: 8px;
   font-size: 12px;
@@ -429,18 +432,18 @@ watch(boundarySearch, (q) => {
   justify-content: space-between;
   align-items: center;
   padding: 4px 0;
-  border-bottom: 1px solid #1f2937;
+  border-bottom: 1px solid #e2e8f0;
   margin-bottom: 4px;
 }
 
 .tree-country .tree-label {
   font-weight: 600;
-  color: #67e8f9;
+  color: #0369a1;
 }
 
 .tree-meta {
   font-size: 10px;
-  color: #6b7280;
+  color: #94a3b8;
 }
 
 .tree-state-group {
@@ -455,25 +458,25 @@ watch(boundarySearch, (q) => {
   padding: 3px 0;
   background: none;
   border: none;
-  color: #e5e7eb;
+  color: #334155;
   cursor: pointer;
   font-size: 12px;
   text-align: left;
 }
 
 .tree-state:hover {
-  color: #67e8f9;
+  color: #2563eb;
 }
 
 .tree-state.active {
-  color: #3b82f6;
+  color: #1d4ed8;
   font-weight: 600;
 }
 
 .tree-arrow {
   width: 12px;
   flex-shrink: 0;
-  color: #6b7280;
+  color: #94a3b8;
   font-size: 10px;
 }
 
@@ -487,24 +490,24 @@ watch(boundarySearch, (q) => {
   padding: 2px 0;
   background: none;
   border: none;
-  color: #9ca3af;
+  color: #64748b;
   cursor: pointer;
   font-size: 11px;
   text-align: left;
 }
 
 .tree-lga:hover {
-  color: #67e8f9;
+  color: #2563eb;
 }
 
 .tree-lga.active {
-  color: #3b82f6;
+  color: #1d4ed8;
   font-weight: 600;
 }
 
 .tree-label :deep(mark) {
-  background: #1e4d78;
-  color: #bae6fd;
+  background: #bfdbfe;
+  color: #1e3a5f;
   border-radius: 2px;
   padding: 0 1px;
 }
@@ -513,21 +516,21 @@ watch(boundarySearch, (q) => {
 .tree-zones-label { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
 .tree-zone-group { display: flex; flex-direction: column; }
 .tree-zone-children { margin-left: 14px; }
-.tree-zone { display: flex; align-items: center; gap: 4px; width: 100%; text-align: left; background: none; border: none; color: #c4b5fd; cursor: pointer; padding: 3px 4px; border-radius: 4px; font-size: 11px; }
-.tree-zone:hover { background: #1e1b4b; }
-.tree-zone.active { background: #312e81; }
-.tree-zone-l1 { color: #d1fae5; font-weight: 500; }
-.tree-zone-l2 { color: #fde68a; }
-.tree-zone-l3 { color: #bfdbfe; }
-.tree-zone-l4 { color: #9ca3af; font-size: 10px; }
+.tree-zone { display: flex; align-items: center; gap: 4px; width: 100%; text-align: left; background: none; border: none; color: #4f46e5; cursor: pointer; padding: 3px 4px; border-radius: 4px; font-size: 11px; }
+.tree-zone:hover { background: #eff6ff; }
+.tree-zone.active { background: #dbeafe; }
+.tree-zone-l1 { color: #065f46; font-weight: 500; }
+.tree-zone-l2 { color: #92400e; }
+.tree-zone-l3 { color: #1e40af; }
+.tree-zone-l4 { color: #475569; font-size: 10px; }
 .tree-zone-l5 { color: #6b7280; font-size: 10px; }
-.level-tag { font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; color: #4b5563; background: #1f2937; border-radius: 3px; padding: 0 4px; margin-right: 4px; flex-shrink: 0; white-space: nowrap; }
+.level-tag { font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; color: #475569; background: #e2e8f0; border-radius: 3px; padding: 0 4px; margin-right: 4px; flex-shrink: 0; white-space: nowrap; }
 .zone-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
-.zone-arrow { width: 10px; flex-shrink: 0; color: #6b7280; font-size: 9px; text-align: center; }
+.zone-arrow { width: 10px; flex-shrink: 0; color: #94a3b8; font-size: 9px; text-align: center; }
 
 .tenant-section {
   padding-bottom: 12px;
-  border-bottom: 1px solid #1f2937;
+  border-bottom: 1px solid #e2e8f0;
   margin-bottom: 12px;
 }
 
@@ -541,9 +544,9 @@ watch(boundarySearch, (q) => {
 
 .tenant-select {
   width: 100%;
-  background: #0f172a;
-  color: #e5e7eb;
-  border: 1px solid #334155;
+  background: #ffffff;
+  color: #1e293b;
+  border: 1px solid #cbd5e1;
   border-radius: 6px;
   padding: 6px 8px;
   font-size: 13px;
@@ -553,16 +556,16 @@ watch(boundarySearch, (q) => {
 .tenant-name {
   margin-top: 5px;
   font-size: 11px;
-  color: #67e8f9;
+  color: #0369a1;
   font-weight: 600;
 }
 
 .nav-btn {
   margin-top: 8px;
   width: 100%;
-  background: #1e3a5f;
-  color: #67e8f9;
-  border: 1px solid #1e4d78;
+  background: #1e40af;
+  color: #ffffff;
+  border: 1px solid #1e40af;
   border-radius: 6px;
   padding: 6px 10px;
   font-size: 12px;
@@ -571,13 +574,23 @@ watch(boundarySearch, (q) => {
 }
 
 .nav-btn:hover {
-  background: #1e4d78;
+  background: #1d4ed8;
+}
+
+.nav-btn-secondary {
+  background: #f1f5f9;
+  color: #334155;
+  border: 1px solid #e2e8f0;
+}
+
+.nav-btn-secondary:hover {
+  background: #e2e8f0;
 }
 
 @media (max-width: 800px) {
   .boundary-explorer {
     border-right: 0;
-    border-bottom: 1px solid #1f2937;
+    border-bottom: 1px solid #e2e8f0;
     max-height: 40vh;
   }
 }

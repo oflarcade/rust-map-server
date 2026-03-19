@@ -1,11 +1,10 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
-import TileInspector from './views/TileInspector.vue';
-import ZoneManager from './views/ZoneManager.vue';
+import AppView from './views/AppView.vue';
+import CountryOverview from './views/CountryOverview.vue';
 
 const routes: RouteRecordRaw[] = [
-  { path: '/', redirect: '/inspector' },
-  { path: '/inspector', component: TileInspector },
-  { path: '/admin/zones', component: ZoneManager },
+  { path: '/', component: AppView },
+  { path: '/country/:countryCode', component: CountryOverview },
 ];
 
 const router = createRouter({

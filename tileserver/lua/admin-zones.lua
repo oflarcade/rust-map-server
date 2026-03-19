@@ -25,7 +25,7 @@ local function list_zones()
         SELECT zone_id, zone_pcode, zone_name, color, parent_pcode,
                zone_type_label, zone_level, children_type,
                array_to_string(constituent_pcodes, ',') AS constituent_pcodes,
-               created_at, updated_at
+               created_at, updated_at, updated_by
         FROM zones
         WHERE tenant_id = $1
         ORDER BY zone_level, zone_name
@@ -55,6 +55,7 @@ local function list_zones()
             constituent_pcodes  = pcodes,
             created_at          = row.created_at,
             updated_at          = row.updated_at,
+            updated_by          = row.updated_by,
         })
     end
 
@@ -92,6 +93,7 @@ local function create_zone()
     local zone_level         = tonumber(body.zone_level) or 1
     local children_type      = body.children_type or "lga"
     local explicit_pcode     = body.zone_pcode        -- optional — skip auto-generation
+    local updated_by         = body.updated_by        -- optional — auth prep
 
     if not zone_name or zone_name == "" then
         ngx.status = 400
@@ -168,15 +170,15 @@ local function create_zone()
     if explicit_pcode and explicit_pcode ~= "" then
         insert_sql = [[
             INSERT INTO zones(tenant_id, zone_pcode, zone_name, color, parent_pcode,
-                              constituent_pcodes, geom, zone_type_label, zone_level, children_type)
+                              constituent_pcodes, geom, zone_type_label, zone_level, children_type, updated_by)
             VALUES ($2, $6, $3, $4, $1, $5::text[], ]] .. geom_subquery .. [[,
-                    $7, $8, $9)
+                    $7, $8, $9, $10)
             RETURNING zone_id, zone_pcode, zone_name, color, parent_pcode,
-                      zone_type_label, zone_level, children_type,
+                      zone_type_label, zone_level, children_type, updated_by,
                       array_to_string(constituent_pcodes, ',') AS constituent_pcodes
         ]]
         insert_params = {parent_pcode, tenant_id, zone_name, color, pcodes_literal,
-                         explicit_pcode, zone_type_label, zone_level, children_type}
+                         explicit_pcode, zone_type_label, zone_level, children_type, updated_by}
     else
         insert_sql = [[
             WITH next_num AS (
@@ -188,21 +190,21 @@ local function create_zone()
             ),
             new_zone AS (
                 INSERT INTO zones(tenant_id, zone_pcode, zone_name, color, parent_pcode,
-                                  constituent_pcodes, geom, zone_type_label, zone_level, children_type)
+                                  constituent_pcodes, geom, zone_type_label, zone_level, children_type, updated_by)
                 SELECT
                     $2,
                     $1 || '-Z' || LPAD(n::text, 2, '0'),
                     $3, $4, $1, $5::text[], ]] .. geom_subquery .. [[,
-                    $6, $7, $8
+                    $6, $7, $8, $9
                 FROM next_num
                 RETURNING zone_id, zone_pcode, zone_name, color, parent_pcode,
-                          zone_type_label, zone_level, children_type,
+                          zone_type_label, zone_level, children_type, updated_by,
                           array_to_string(constituent_pcodes, ',') AS constituent_pcodes
             )
             SELECT * FROM new_zone
         ]]
         insert_params = {parent_pcode, tenant_id, zone_name, color, pcodes_literal,
-                         zone_type_label, zone_level, children_type}
+                         zone_type_label, zone_level, children_type, updated_by}
     end
 
     local insert_result, err1 = pg.exec(insert_sql, insert_params)
@@ -302,6 +304,11 @@ local function update_zone(zid)
     if body.zone_level then
         table.insert(sets, "zone_level = $" .. idx)
         table.insert(params, tonumber(body.zone_level))
+        idx = idx + 1
+    end
+    if body.updated_by ~= nil then
+        table.insert(sets, "updated_by = $" .. idx)
+        table.insert(params, body.updated_by)
         idx = idx + 1
     end
     if body.constituent_pcodes and #body.constituent_pcodes > 0 then

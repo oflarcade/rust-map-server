@@ -31,3 +31,12 @@ button {
   font: inherit;
 }
 
+/* ── Dark mode ─────────────────────────────────────────────────────────────
+   Invert the entire app shell; re-invert #app-map so the map itself stays
+   true-colour (double invert ≈ identity for most hues).
+   ──────────────────────────────────────────────────────────────────────── */
+html.dark #app {
+  filter: invert(100%) hue-rotate(180deg);
+  background: #0f172a;
+}
+

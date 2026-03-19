@@ -1,7 +1,7 @@
 import { computed, reactive, ref, watch } from 'vue';
 import maplibregl, { type Map } from 'maplibre-gl';
 import { DEFAULT_MARTIN_URL, DEFAULT_PROXY_URL, normalizeBaseUrl } from '../config/urls';
-import { TENANTS, type TenantConfig } from '../config/tenants';
+import { TENANTS, loadTenants, type TenantConfig } from '../config/tenants';
 import { buildInspectorStyle, loadMartinTileMetadata, resolveBoundarySourceKey } from '../map/inspectorStyle';
 
 // ---------------------------------------------------------------------------
@@ -13,6 +13,7 @@ export interface DataControlRow {
   group: 'base' | 'boundary';
   label: string;
   layers: string[];
+  countryLayerPrefixes?: string[]; // prefixes for country-mode equivalent layers
   visible: boolean;
 }
 
@@ -102,9 +103,12 @@ const BASE_LAYERS = [
 // ---------------------------------------------------------------------------
 
 const selectedTenantId = ref<string>('11');
+const tenantList = ref<TenantConfig[]>(TENANTS);
+const hierarchyPanelOpen = ref(false);
+const layersPanelOpen = ref(false);
 
 const currentTenant = computed<TenantConfig>(
-  () => TENANTS.find((t) => t.id === selectedTenantId.value) ?? TENANTS[0],
+  () => tenantList.value.find((t) => t.id === selectedTenantId.value) ?? tenantList.value[0] ?? TENANTS[0],
 );
 
 const currentZoom = ref(0);
@@ -296,20 +300,20 @@ export function useTileInspector() {
 
   function initControls() {
     dataControls.value = [
-      { id: 'water', group: 'base', label: 'Water', layers: ['base-water'], visible: true },
-      { id: 'landcover', group: 'base', label: 'Landcover', layers: ['base-landcover'], visible: true },
-      { id: 'landuse', group: 'base', label: 'Landuse', layers: ['base-landuse'], visible: true },
-      { id: 'roads', group: 'base', label: 'Roads', layers: ['base-roads'], visible: true },
-      { id: 'roads-major', group: 'base', label: 'Major roads', layers: ['base-roads-major'], visible: true },
-      { id: 'buildings', group: 'base', label: 'Buildings', layers: ['base-buildings'], visible: true },
-      { id: 'places', group: 'base', label: 'Places', layers: ['base-place-label'], visible: true },
-      { id: 'zones', group: 'boundary', label: 'Administrative areas', layers: ['zones-fill', 'zones-outline'], visible: true },
-      { id: 'boundary-fill', group: 'boundary', label: 'Boundary areas', layers: ['boundary-fill'], visible: true },
-      { id: 'boundary-state', group: 'boundary', label: 'State lines', layers: ['boundary-state-line'], visible: true },
-      { id: 'boundary-lga', group: 'boundary', label: 'LGA lines', layers: ['boundary-lga-line'], visible: true },
-      { id: 'boundary-ward', group: 'boundary', label: 'Ward/Sector lines', layers: ['ward-outline'], visible: true },
-      { id: 'boundary-state-label', group: 'boundary', label: 'State labels', layers: ['boundary-state-label'], visible: true },
-      { id: 'boundary-lga-label', group: 'boundary', label: 'LGA labels', layers: ['boundary-lga-label'], visible: true },
+      { id: 'water',      group: 'base', label: 'Water',      layers: ['base-water'],        countryLayerPrefixes: ['co-water-'],  visible: true },
+      { id: 'landcover',  group: 'base', label: 'Landcover',  layers: ['base-landcover'],    countryLayerPrefixes: ['co-lc-'],     visible: true },
+      { id: 'landuse',    group: 'base', label: 'Landuse',    layers: ['base-landuse'],                                            visible: true },
+      { id: 'roads',      group: 'base', label: 'Roads',      layers: ['base-roads'],        countryLayerPrefixes: ['co-road-'],   visible: true },
+      { id: 'roads-major',group: 'base', label: 'Major roads',layers: ['base-roads-major'],  countryLayerPrefixes: ['co-road-'],   visible: true },
+      { id: 'buildings',  group: 'base', label: 'Buildings',  layers: ['base-buildings'],                                          visible: true },
+      { id: 'places',     group: 'base', label: 'Places',     layers: ['base-place-label'],  countryLayerPrefixes: ['co-place-'],  visible: true },
+      { id: 'zones',      group: 'boundary', label: 'Administrative areas', layers: ['zones-fill', 'zones-outline'], countryLayerPrefixes: ['co-fill-', 'co-outline-'], visible: true },
+      { id: 'boundary-fill',         group: 'boundary', label: 'Boundary areas',   layers: ['boundary-fill'],         countryLayerPrefixes: ['co-hdx-state-fill'],  visible: true },
+      { id: 'boundary-state',        group: 'boundary', label: 'State lines',      layers: ['boundary-state-line'],   countryLayerPrefixes: ['co-hdx-state-line'],  visible: true },
+      { id: 'boundary-lga',          group: 'boundary', label: 'LGA lines',        layers: ['boundary-lga-line'],     countryLayerPrefixes: ['co-hdx-lga-line'],    visible: true },
+      { id: 'boundary-ward',         group: 'boundary', label: 'Ward/Sector lines',layers: ['ward-outline'],                                                         visible: true },
+      { id: 'boundary-state-label',  group: 'boundary', label: 'State labels',     layers: ['boundary-state-label'],  countryLayerPrefixes: ['co-hdx-state-label'], visible: true },
+      { id: 'boundary-lga-label',    group: 'boundary', label: 'LGA labels',       layers: ['boundary-lga-label'],                                                   visible: true },
     ];
     updateControlStates();
   }
@@ -319,9 +323,17 @@ export function useTileInspector() {
   function toggleControl(row: DataControlRow): void {
     if (!map) return;
     const nextVisible = !row.visible;
+    const vis = nextVisible ? 'visible' : 'none';
+    // Toggle normal mode layers
     for (const layerId of row.layers) {
-      if (map.getLayer(layerId)) {
-        map.setLayoutProperty(layerId, 'visibility', nextVisible ? 'visible' : 'none');
+      if (map.getLayer(layerId)) map.setLayoutProperty(layerId, 'visibility', vis);
+    }
+    // Toggle country-mode equivalent layers (prefix match)
+    if (row.countryLayerPrefixes?.length) {
+      for (const layer of map.getStyle().layers ?? []) {
+        if (row.countryLayerPrefixes.some((p) => layer.id.startsWith(p) || layer.id === p)) {
+          if (map.getLayer(layer.id)) map.setLayoutProperty(layer.id, 'visibility', vis);
+        }
       }
     }
     updateControlStates();
@@ -619,6 +631,19 @@ export function useTileInspector() {
     }
   }
 
+  function resizeMap(): void {
+    map?.resize();
+  }
+
+  function getMap(): Map | null {
+    return map;
+  }
+
+  async function reloadTenantList(): Promise<void> {
+    const PROXY = normalizeBaseUrl(DEFAULT_PROXY_URL);
+    tenantList.value = await loadTenants(PROXY);
+  }
+
   function cleanup(): void {
     if (inspectorPopup) { inspectorPopup.remove(); inspectorPopup = null; }
     if (map) {
@@ -640,6 +665,9 @@ export function useTileInspector() {
 
   return {
     selectedTenantId,
+    tenantList,
+    hierarchyPanelOpen,
+    layersPanelOpen,
     currentTenant,
     currentZoom,
     dataControls,
@@ -655,6 +683,10 @@ export function useTileInspector() {
     filteredHierarchy,
 
     reloadTenant,
+    reloadTenantList,
+    resizeMap,
+    getMap,
+    loadZoneOverlay,
     toggleControl,
     refreshBoundarySummary,
     zoomToName,
