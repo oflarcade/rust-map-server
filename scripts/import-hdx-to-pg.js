@@ -301,12 +301,13 @@ async function importAdmFeatures(client) {
   await importIndiaOsmBoundaries(client);
 
   // Fill in any missing area/center via PostGIS (catches features without pre-computed values)
+  // ST_MakeValid fixes invalid geometries that cause lwgeom_area_spher errors
   log('Computing missing area_sqkm and centers via PostGIS...');
   const updated = await client.query(`
     UPDATE adm_features SET
-      area_sqkm  = ST_Area(geom::geography) / 1e6,
-      center_lat = ST_Y(ST_Centroid(geom)),
-      center_lon = ST_X(ST_Centroid(geom))
+      area_sqkm  = ST_Area(ST_MakeValid(geom)::geography) / 1e6,
+      center_lat = ST_Y(ST_Centroid(ST_MakeValid(geom))),
+      center_lon = ST_X(ST_Centroid(ST_MakeValid(geom)))
     WHERE area_sqkm IS NULL OR center_lat IS NULL
   `);
   if (updated.rowCount > 0) {

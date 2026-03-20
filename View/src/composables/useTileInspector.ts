@@ -43,6 +43,7 @@ const selectedTenantId = ref<string>('11');
 const tenantList = ref<TenantConfig[]>(TENANTS);
 const hierarchyPanelOpen = ref(false);
 const layersPanelOpen = ref(false);
+const hierarchyEditorOpen = ref(false);
 
 const currentTenant = computed<TenantConfig>(
   () => tenantList.value.find((t) => t.id === selectedTenantId.value) ?? tenantList.value[0] ?? TENANTS[0],
@@ -147,21 +148,12 @@ export function useTileInspector() {
     });
   }
 
-  // loadHierarchy: thin no-op stub — kept for backward compatibility.
-  // TerritoriesDrawer.vue calls this after territory mutations.
-  // TanStack query in useBoundarySearch handles actual re-fetch automatically
-  // when the selectedTenantId query key changes. For manual invalidation,
-  // callers should use queryClient.invalidateQueries directly.
-  function loadHierarchy(): void {
-    // no-op: TanStack query in useBoundarySearch re-fetches automatically
-  }
+  // loadHierarchy / loadZoneOverlay: no-op stubs — boundary data is driven by
+  // TanStack (useBoundarySearch / useMapLayers). Callers may call these hooks for
+  // API compatibility; prefer queryClient.invalidateQueries for manual refresh.
+  function loadHierarchy(): void {}
 
-  // loadZoneOverlay: no-op stub — driven by TanStack watch in useMapLayers.
-  // useZoneManager calls this after zone mutations; the TanStack invalidation
-  // in useZoneManager.invalidate() already triggers the geojson re-fetch.
-  function loadZoneOverlay(): void {
-    // no-op: useMapLayers TanStack query handles this automatically
-  }
+  function loadZoneOverlay(): void {}
 
   // -- Watcher (registered once) --------------------------------------------
 
@@ -179,6 +171,7 @@ export function useTileInspector() {
     tenantList,
     hierarchyPanelOpen,
     layersPanelOpen,
+    hierarchyEditorOpen,
     currentTenant,
     currentZoom,
     boundarySummary,

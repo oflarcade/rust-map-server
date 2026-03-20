@@ -1,9 +1,11 @@
 import maplibregl from 'maplibre-gl';
 import { useTileInspector } from './useTileInspector';
 import { useMapLayers } from './useMapLayers';
+import { adminLevelLabel } from '../config/adminLevelLabels';
 import { bboxFromGeometry } from '../utils/bbox';
 import { highlight } from '../utils/highlight';
 import type { HierarchyState, HierarchyLGA } from '../types/boundary';
+import type { TenantConfig } from '../types/tenant';
 
 // ---------------------------------------------------------------------------
 // Module-level shared state (singleton across all callers)
@@ -17,12 +19,63 @@ let inspectorPopup: maplibregl.Popup | null = null;
 
 type HighlightItem = { pcode: string; level: 'state' | 'lga' | 'zone'; name?: string };
 
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/** Category line + title + optional parent context — tuned for long OCHA labels (no harsh all-caps). */
+function boundaryPopupHtml(kindLabel: string, title: string, parentLine?: string): string {
+  const k = escapeHtml(kindLabel);
+  const t = escapeHtml(title);
+  const p = parentLine ? escapeHtml(parentLine) : '';
+  return (
+    `<div style="padding:1px 0 2px">` +
+    `<div style="font-size:10px;font-weight:600;color:#64748b;letter-spacing:0.02em;line-height:1.35;margin-bottom:4px">${k}</div>` +
+    `<div style="font-size:15px;font-weight:600;color:#0f172a;line-height:1.35">${t}</div>` +
+    (p
+      ? `<div style="font-size:11px;color:#475569;margin-top:6px;line-height:1.45;border-top:1px solid #e2e8f0;padding-top:5px">${p}</div>`
+      : '') +
+    `</div>`
+  );
+}
+
+function leafKindFromTileProps(props: Record<string, unknown>, tenant: TenantConfig): string {
+  const raw = props.level_label;
+  if (typeof raw === 'string' && raw.trim()) return raw.trim();
+
+  const adm3 = String(props.adm3_name ?? '').trim();
+  const adm2 = String(props.adm2_name ?? '').trim();
+  const depth = adm3 ? 3 : adm2 ? 2 : 1;
+  const cc = tenant.countryCode;
+
+  const fromTable = adminLevelLabel(cc, depth);
+  if (fromTable) return fromTable;
+  if (depth > 1) return tenant.lgaLabel?.trim() || 'Local area';
+  return 'Administrative area';
+}
+
+function subtitleFromTileProps(props: Record<string, unknown>): string {
+  const adm3 = String(props.adm3_name ?? '').trim();
+  const adm2 = String(props.adm2_name ?? '').trim();
+  const adm1 = String(props.adm1_name ?? props.name ?? '').trim();
+  if (adm3) {
+    const parts = [adm2, adm1].filter(Boolean);
+    return parts.join(' · ');
+  }
+  if (adm2 && adm1) return adm1;
+  return '';
+}
+
 // ---------------------------------------------------------------------------
 // Composable
 // ---------------------------------------------------------------------------
 
 export function useMapInteraction() {
-  const { getMap } = useTileInspector();
+  const { getMap, currentTenant } = useTileInspector();
   const { getAllBoundaryFeatures, boundarySummary } = useMapLayers();
 
   // -- Map interaction setup ------------------------------------------------
@@ -42,11 +95,14 @@ export function useMapInteraction() {
     map.on('click', 'boundary-fill', (e) => {
       if (!e.features?.length) return;
       const feature = e.features[0];
-      const props = (feature.properties ?? {}) as any;
-      const adm2 = props.adm2_name || '';
-      const adm1 = props.adm1_name || props.name || '';
-      const title = adm2 || adm1;
-      const subtitle = adm2 ? adm1 : '';
+      const props = (feature.properties ?? {}) as Record<string, unknown>;
+      const adm3 = String(props.adm3_name ?? '').trim();
+      const adm2 = String(props.adm2_name ?? '').trim();
+      const adm1 = String(props.adm1_name ?? props.name ?? '').trim();
+      const title = adm3 || adm2 || adm1;
+      const subtitle = subtitleFromTileProps(props);
+      const tenant = currentTenant.value;
+      const kindLabel = leafKindFromTileProps(props, tenant);
 
       if (feature.geometry) {
         const bounds = bboxFromGeometry(feature.geometry as GeoJSON.Geometry);
@@ -55,13 +111,9 @@ export function useMapInteraction() {
       if (title) {
         boundarySummary.clickedLGA = title;
         if (inspectorPopup) { inspectorPopup.remove(); inspectorPopup = null; }
-        inspectorPopup = new maplibregl.Popup({ closeButton: true, maxWidth: '220px' })
+        inspectorPopup = new maplibregl.Popup({ closeButton: true, maxWidth: '280px', className: 'boundary-inspector-popup' })
           .setLngLat(e.lngLat)
-          .setHTML(
-            `<div style="font-size:11px;text-transform:uppercase;color:#64748b;letter-spacing:0.06em;margin-bottom:3px">${subtitle ? 'LGA' : 'State'}</div>` +
-            `<div style="font-size:14px;font-weight:600;color:#0f172a;line-height:1.3">${title}</div>` +
-            (subtitle ? `<div style="font-size:11px;color:#475569;margin-top:3px">${subtitle}</div>` : '')
-          )
+          .setHTML(boundaryPopupHtml(kindLabel, title, subtitle || undefined))
           .addTo(map!);
       }
     });
@@ -117,30 +169,35 @@ export function useMapInteraction() {
   function flyToHierarchyItem(state: HierarchyState, lga?: HierarchyLGA): void {
     const map = getMap();
     if (!map) return;
+    const tenant = currentTenant.value;
+    const cc = tenant.countryCode;
     if (lga && lga.center_lon != null && lga.center_lat != null) {
       const lngLat: [number, number] = [lga.center_lon, lga.center_lat];
+      const childKind =
+        lga.level_label?.trim() ||
+        tenant.lgaLabel?.trim() ||
+        adminLevelLabel(cc, 2) ||
+        'Local area';
+      const parentLine = state.name;
       map.once('moveend', () => {
         if (inspectorPopup) { inspectorPopup.remove(); inspectorPopup = null; }
-        inspectorPopup = new maplibregl.Popup({ closeButton: true, maxWidth: '220px' })
+        inspectorPopup = new maplibregl.Popup({ closeButton: true, maxWidth: '280px', className: 'boundary-inspector-popup' })
           .setLngLat(lngLat)
-          .setHTML(
-            `<div style="font-size:11px;text-transform:uppercase;color:#64748b;letter-spacing:0.06em;margin-bottom:3px">LGA</div>` +
-            `<div style="font-size:14px;font-weight:600;color:#0f172a;line-height:1.3">${lga.name}</div>` +
-            `<div style="font-size:11px;color:#475569;margin-top:3px">${state.name}</div>`
-          )
+          .setHTML(boundaryPopupHtml(childKind, lga.name, parentLine))
           .addTo(map!);
       });
       map.flyTo({ center: lngLat, zoom: Math.max(map.getZoom(), 9), duration: 600 });
     } else if (state.center_lon != null && state.center_lat != null) {
       const lngLat: [number, number] = [state.center_lon, state.center_lat];
+      const stateKind =
+        state.level_label?.trim() ||
+        adminLevelLabel(cc, 1) ||
+        'Administrative area';
       map.once('moveend', () => {
         if (inspectorPopup) { inspectorPopup.remove(); inspectorPopup = null; }
-        inspectorPopup = new maplibregl.Popup({ closeButton: true, maxWidth: '220px' })
+        inspectorPopup = new maplibregl.Popup({ closeButton: true, maxWidth: '280px', className: 'boundary-inspector-popup' })
           .setLngLat(lngLat)
-          .setHTML(
-            `<div style="font-size:11px;text-transform:uppercase;color:#64748b;letter-spacing:0.06em;margin-bottom:3px">State</div>` +
-            `<div style="font-size:14px;font-weight:600;color:#0f172a;line-height:1.3">${state.name}</div>`
-          )
+          .setHTML(boundaryPopupHtml(stateKind, state.name))
           .addTo(map!);
       });
       map.flyTo({ center: lngLat, zoom: Math.max(map.getZoom(), 7), duration: 600 });

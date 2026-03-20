@@ -1,15 +1,14 @@
 -- serve-geojson.lua
 -- GET /boundaries/geojson
 -- Streams a GeoJSON FeatureCollection for the tenant from PostGIS.
--- Includes zones (pre-computed union), states, and ungrouped LGAs.
--- Rwanda and India tenants return an empty FeatureCollection (no HDX data imported).
+-- Uses geo_hierarchy_nodes (new model); ungrouped LGAs + states + wards included.
 
 local cjson = require("cjson.safe")
 local db    = require("boundary-db")
 
 local tenant_id = tonumber(ngx.var.http_x_tenant_id)
 
-local rows, err = db.get_geojson(tenant_id)
+local rows, err = db.get_geo_nodes_geojson(tenant_id)
 if err then
     ngx.status = 502
     ngx.header["Content-Type"] = "application/json"

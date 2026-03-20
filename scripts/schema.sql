@@ -89,3 +89,45 @@ ALTER TABLE zones ADD COLUMN IF NOT EXISTS zone_level    SMALLINT NOT NULL DEFAU
 ALTER TABLE zones ADD COLUMN IF NOT EXISTS children_type VARCHAR(4) NOT NULL DEFAULT 'lga';
 ALTER TABLE zones ADD COLUMN IF NOT EXISTS updated_by    VARCHAR(255);
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS boundary_source VARCHAR(255);
+
+-- ---------------------------------------------------------------------------
+-- geo_hierarchy_levels  (per-tenant custom hierarchy level definitions)
+-- ---------------------------------------------------------------------------
+-- level_label should match adm_features.level_label for the tenant's country (HDX / OCHA types);
+-- UI loads options from GET /admin/geo-hierarchy/level-labels.
+CREATE TABLE IF NOT EXISTS geo_hierarchy_levels (
+    id          SERIAL PRIMARY KEY,
+    tenant_id   INTEGER NOT NULL REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+    level_order SMALLINT NOT NULL,
+    level_label VARCHAR(100) NOT NULL,
+    level_code  VARCHAR(10)  NOT NULL,
+    UNIQUE(tenant_id, level_order),
+    UNIQUE(tenant_id, level_code)
+);
+
+-- ---------------------------------------------------------------------------
+-- geo_hierarchy_nodes  (the hierarchy tree nodes)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS geo_hierarchy_nodes (
+    id                 SERIAL PRIMARY KEY,
+    tenant_id          INTEGER  NOT NULL REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+    parent_id          INTEGER  REFERENCES geo_hierarchy_nodes(id) ON DELETE CASCADE,
+    state_pcode        VARCHAR(30) NOT NULL,
+    level_id           INTEGER  NOT NULL REFERENCES geo_hierarchy_levels(id),
+    pcode              VARCHAR(80) NOT NULL UNIQUE,
+    name               VARCHAR(200) NOT NULL,
+    color              VARCHAR(7),
+    constituent_pcodes TEXT[],
+    geom               GEOMETRY(MULTIPOLYGON, 4326),
+    area_sqkm          NUMERIC,
+    center_lat         NUMERIC,
+    center_lon         NUMERIC,
+    created_at         TIMESTAMPTZ DEFAULT NOW(),
+    updated_at         TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS ghn_tenant_idx ON geo_hierarchy_nodes(tenant_id);
+CREATE INDEX IF NOT EXISTS ghn_parent_idx ON geo_hierarchy_nodes(parent_id);
+CREATE INDEX IF NOT EXISTS ghn_state_idx  ON geo_hierarchy_nodes(tenant_id, state_pcode);
+CREATE INDEX IF NOT EXISTS ghn_pcode_idx  ON geo_hierarchy_nodes(pcode);
+CREATE INDEX IF NOT EXISTS ghn_geom_idx   ON geo_hierarchy_nodes USING GIST(geom);

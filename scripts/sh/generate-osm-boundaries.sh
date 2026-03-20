@@ -67,8 +67,15 @@ if [ -n "$COUNTRY_FILTER" ]; then
     COUNTRY_DEFS=("${FILTERED[@]}")
 fi
 
-if ! command -v docker &>/dev/null; then
-    log_error "Docker is required. Install Docker and try again."
+# Prefer native ogr2ogr; fall back to Docker
+USE_DOCKER=false
+if command -v ogr2ogr &>/dev/null; then
+    log_info "Using native ogr2ogr: $(ogr2ogr --version 2>&1 | head -1)"
+elif command -v docker &>/dev/null; then
+    USE_DOCKER=true
+    log_info "Using Docker image: $GDAL_IMAGE"
+else
+    log_error "Neither ogr2ogr nor Docker found. Install gdal-bin or Docker."
     exit 1
 fi
 
@@ -78,7 +85,6 @@ echo ""
 echo -e "\033[36m================================================================\033[0m"
 echo -e "\033[36m  OSM Boundary GeoJSON Extractor\033[0m"
 echo -e "\033[36m  Countries: ${#COUNTRY_DEFS[@]}\033[0m"
-echo -e "\033[36m  Image: $GDAL_IMAGE\033[0m"
 echo -e "\033[36m================================================================\033[0m"
 echo ""
 
@@ -110,18 +116,26 @@ for DEF in "${COUNTRY_DEFS[@]}"; do
         continue
     fi
 
-    log_info "Running ogr2ogr in Docker (this may take several minutes for large files)..."
-
-    docker run --rm \
-        -v "${OSM_DATA_DIR}:/input:ro" \
-        -v "${BOUNDARIES_DIR}:/output" \
-        "$GDAL_IMAGE" \
-        ogr2ogr \
+    log_info "Running ogr2ogr (this may take several minutes for large files)..."
+    if [ "$USE_DOCKER" = true ]; then
+        docker run --rm \
+            -v "${OSM_DATA_DIR}:/input:ro" \
+            -v "${BOUNDARIES_DIR}:/output" \
+            "$GDAL_IMAGE" \
+            ogr2ogr \
             -f GeoJSON \
             "/output/${C_FILE}.geojson" \
             "/input/${C_OSM_FILE}" \
             multipolygons \
             -where "boundary='administrative' AND (admin_level='4' OR admin_level='5' OR admin_level='6')"
+    else
+        ogr2ogr \
+            -f GeoJSON \
+            "$GEOJSON_PATH" \
+            "$OSM_PATH" \
+            multipolygons \
+            -where "boundary='administrative' AND (admin_level='4' OR admin_level='5' OR admin_level='6')"
+    fi
 
     if [ -f "$GEOJSON_PATH" ] && [ -s "$GEOJSON_PATH" ]; then
         SIZE_MB=$(du -m "$GEOJSON_PATH" | cut -f1)

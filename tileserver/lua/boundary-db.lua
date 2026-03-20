@@ -305,4 +305,205 @@ function M.get_tenant(tenant_id)
     return nil, nil
 end
 
+-- ---------------------------------------------------------------------------
+-- get_geo_levels(tenant_id) — list hierarchy levels for tenant
+-- ---------------------------------------------------------------------------
+function M.get_geo_levels(tenant_id)
+    local sql = [[
+        SELECT id, level_order, level_label, level_code
+        FROM geo_hierarchy_levels
+        WHERE tenant_id = $1
+        ORDER BY level_order
+    ]]
+    return pg.exec(sql, {tenant_id})
+end
+
+-- ---------------------------------------------------------------------------
+-- get_geo_nodes(tenant_id) — full node list with level info for tree building
+-- ---------------------------------------------------------------------------
+function M.get_geo_nodes(tenant_id)
+    local sql = [[
+        SELECT n.id, n.parent_id, n.state_pcode, n.pcode, n.name, n.color,
+               array_to_string(n.constituent_pcodes, ',') AS constituent_pcodes,
+               n.area_sqkm, n.center_lat, n.center_lon,
+               l.level_order, l.level_label
+        FROM geo_hierarchy_nodes n
+        JOIN geo_hierarchy_levels l ON l.id = n.level_id
+        WHERE n.tenant_id = $1
+        ORDER BY l.level_order, n.name
+    ]]
+    return pg.exec(sql, {tenant_id})
+end
+
+-- ---------------------------------------------------------------------------
+-- get_geo_nodes_geojson(tenant_id) — for /boundaries/geojson endpoint
+-- Returns geo nodes + states + ungrouped LGAs + grouped LGAs + wards
+-- ---------------------------------------------------------------------------
+function M.get_geo_nodes_geojson(tenant_id)
+    local sql = [[
+        -- Geo hierarchy nodes (pre-computed union geometry)
+        SELECT
+            ST_AsGeoJSON(n.geom)                             AS geometry,
+            n.pcode,
+            n.name,
+            'geo_node'                                       AS feature_type,
+            n.state_pcode                                    AS parent_pcode,
+            n.color,
+            l.level_order::SMALLINT                          AS zone_level,
+            array_to_string(n.constituent_pcodes, ',')       AS constituent_pcodes
+        FROM geo_hierarchy_nodes n
+        JOIN geo_hierarchy_levels l ON l.id = n.level_id
+        WHERE n.tenant_id = $1
+          AND n.geom IS NOT NULL
+
+        UNION ALL
+
+        -- States: derived from the parent of scoped LGAs
+        SELECT
+            ST_AsGeoJSON(a.geom) AS geometry,
+            a.pcode,
+            a.name,
+            'state'              AS feature_type,
+            a.parent_pcode,
+            NULL                 AS color,
+            NULL::SMALLINT       AS zone_level,
+            NULL                 AS constituent_pcodes
+        FROM adm_features a
+        WHERE a.adm_level = 1
+          AND a.pcode IN (
+              SELECT DISTINCT af.parent_pcode
+              FROM adm_features af
+              JOIN tenant_scope ts ON ts.pcode = af.pcode AND ts.tenant_id = $1
+              WHERE af.adm_level = 2
+          )
+
+        UNION ALL
+
+        -- LGAs in tenant scope NOT assigned to any geo hierarchy node
+        SELECT
+            ST_AsGeoJSON(a.geom) AS geometry,
+            a.pcode,
+            a.name,
+            'lga'                AS feature_type,
+            a.parent_pcode,
+            NULL                 AS color,
+            NULL::SMALLINT       AS zone_level,
+            NULL                 AS constituent_pcodes
+        FROM adm_features a
+        JOIN tenant_scope ts ON ts.pcode = a.pcode AND ts.tenant_id = $1
+        WHERE a.adm_level = 2
+          AND a.pcode NOT IN (
+              SELECT UNNEST(constituent_pcodes)
+              FROM geo_hierarchy_nodes
+              WHERE tenant_id = $1 AND constituent_pcodes IS NOT NULL
+          )
+
+        UNION ALL
+
+        -- Grouped LGAs: geometry for client-side highlight (not rendered as layer)
+        SELECT
+            ST_AsGeoJSON(a.geom) AS geometry,
+            a.pcode,
+            a.name,
+            'grouped_lga'        AS feature_type,
+            a.parent_pcode,
+            NULL                 AS color,
+            NULL::SMALLINT       AS zone_level,
+            NULL                 AS constituent_pcodes
+        FROM adm_features a
+        JOIN tenant_scope ts ON ts.pcode = a.pcode AND ts.tenant_id = $1
+        WHERE a.adm_level = 2
+          AND a.pcode IN (
+              SELECT UNNEST(constituent_pcodes)
+              FROM geo_hierarchy_nodes
+              WHERE tenant_id = $1 AND constituent_pcodes IS NOT NULL
+          )
+
+        UNION ALL
+
+        -- adm3+ features (wards, sectors, etc.)
+        SELECT
+            ST_AsGeoJSON(a.geom) AS geometry,
+            a.pcode,
+            a.name,
+            'ward'               AS feature_type,
+            a.parent_pcode,
+            NULL                 AS color,
+            NULL::SMALLINT       AS zone_level,
+            NULL                 AS constituent_pcodes
+        FROM adm_features a
+        JOIN tenant_scope ts ON ts.pcode = a.pcode AND ts.tenant_id = $1
+        WHERE a.adm_level >= 3
+    ]]
+    return pg.exec(sql, {tenant_id})
+end
+
+-- ---------------------------------------------------------------------------
+-- get_hdx_level_labels(tenant_id)
+-- Distinct adm_features.level_label values for the tenant's country (HDX / import
+-- terminology), for adm_level >= 3 — e.g. "Senatorial District", "Ward".
+-- ---------------------------------------------------------------------------
+function M.get_hdx_level_labels(tenant_id)
+    local sql = [[
+        SELECT DISTINCT af.level_label
+        FROM adm_features af
+        INNER JOIN tenants t ON t.country_code = af.country_code AND t.tenant_id = $1
+        WHERE af.adm_level >= 3
+          AND af.level_label IS NOT NULL
+          AND BTRIM(af.level_label) <> ''
+        ORDER BY af.level_label
+    ]]
+    return pg.exec(sql, {tenant_id})
+end
+
+-- ---------------------------------------------------------------------------
+-- region_geo_lookup(tenant_id, lat, lon)
+-- Finds the deepest geo_hierarchy_node containing the point.
+-- Returns nil if no geo nodes exist for tenant (caller falls back to LGA lookup).
+-- ---------------------------------------------------------------------------
+function M.region_geo_lookup(tenant_id, lat, lon)
+    local sql = [[
+        SELECT n.id, n.pcode, n.name, n.color, n.parent_id, n.state_pcode,
+               l.level_order, l.level_label
+        FROM geo_hierarchy_nodes n
+        JOIN geo_hierarchy_levels l ON l.id = n.level_id
+        WHERE n.tenant_id = $1
+          AND n.geom IS NOT NULL
+          AND ST_Contains(n.geom, ST_SetSRID(ST_MakePoint($3, $2), 4326))
+        ORDER BY l.level_order DESC
+        LIMIT 1
+    ]]
+    local rows, err = pg.exec(sql, {tenant_id, lat, lon})
+    if err then return nil, err end
+    if not rows or #rows == 0 then return nil, nil end
+    return rows[1], nil
+end
+
+-- ---------------------------------------------------------------------------
+-- get_geo_node_chain(node_id)
+-- Returns the ancestor chain from root to the given node (level_order ASC).
+-- Used by region-lookup to build full adm_N key chain.
+-- ---------------------------------------------------------------------------
+function M.get_geo_node_chain(node_id)
+    local sql = [[
+        WITH RECURSIVE chain AS (
+            SELECT n.id, n.parent_id, n.pcode, n.name, n.color, n.state_pcode,
+                   l.level_order, l.level_label
+            FROM geo_hierarchy_nodes n
+            JOIN geo_hierarchy_levels l ON l.id = n.level_id
+            WHERE n.id = $1
+            UNION ALL
+            SELECT n.id, n.parent_id, n.pcode, n.name, n.color, n.state_pcode,
+                   l.level_order, l.level_label
+            FROM geo_hierarchy_nodes n
+            JOIN geo_hierarchy_levels l ON l.id = n.level_id
+            JOIN chain c ON n.id = c.parent_id
+        )
+        SELECT id, parent_id, pcode, name, color, state_pcode, level_order, level_label
+        FROM chain
+        ORDER BY level_order ASC
+    ]]
+    return pg.exec(sql, {node_id})
+end
+
 return M

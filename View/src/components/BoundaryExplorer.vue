@@ -171,14 +171,6 @@ function highlightPcode(pcode: string): string {
       />
       <div class="mt-1 text-xs text-sky-700 font-semibold">{{ currentTenant.name }}</div>
       <Button
-        label="Tenant Administrative Manager"
-        icon="pi pi-arrow-right"
-        iconPos="right"
-        class="w-full mt-2 !text-xs"
-        size="small"
-        @click="router.push('/admin/zones')"
-      />
-      <Button
         :label="`View All ${currentTenant.countryCode} Tenants`"
         icon="pi pi-arrow-right"
         iconPos="right"

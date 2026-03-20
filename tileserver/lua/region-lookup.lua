@@ -1,19 +1,16 @@
 -- region-lookup.lua
 -- GET /region?lat=<lat>&lon=<lon>
--- Returns the full administrative hierarchy for the given coordinates:
---   country → state → zone (if any) → lga
+-- Returns the full administrative hierarchy for the given coordinates.
+-- Uses geo_hierarchy_nodes GIST lookup (new model); falls back to raw LGA.
 --
 -- Response (found):
 --   {
---     found: true, matched_level: "zone"|"lga",
---     -- HDX-style admin hierarchy objects (mirroring adm_features levels)
---     adm_0: { pcode, name },            -- country
---     adm_1: { pcode, name },            -- state / adm1
---     adm_3: { pcode, name, color },     -- zone (only when matched_level === "zone")
---     adm_4: { pcode, name }             -- lga / adm2 (when an LGA match exists)
+--     found: true, matched_level: "geo_node"|"lga",
+--     adm_0: { pcode, name },             -- country
+--     adm_1: { pcode, name },             -- state
+--     adm_{2+level_order}: { pcode, name, color, level_label },  -- geo node per level
+--     adm_{2+max_level_order+1}: { pcode, name }  -- lga (when matched)
 --   }
--- Response (not found):
---   { found: false, error, code, lat, lon }
 
 local cjson = require("cjson.safe")
 local db    = require("boundary-db")
@@ -71,72 +68,106 @@ ngx.header["Content-Type"]  = "application/json"
 ngx.header["Cache-Control"] = "no-store"
 ngx.header["X-Cache"]       = "MISS"
 
-local row, err = db.region_lookup(tenant_id, lat, lon)
+-- Fetch country info from tenants table
+local tenant, _ = db.get_tenant(tenant_id)
+local country_pcode = (tenant and tenant.country_code) or ""
+local country_name  = (tenant and tenant.country_name)  or ""
 
-if err then
+-- Always look up the LGA containing the point
+local lga_sql = [[
+    SELECT a.pcode AS lga_pcode, a.name AS lga_name,
+           a.parent_pcode AS state_pcode, s.name AS state_name
+    FROM adm_features a
+    JOIN tenant_scope ts ON ts.pcode = a.pcode AND ts.tenant_id = $1
+    JOIN adm_features s  ON s.pcode = a.parent_pcode
+    WHERE a.adm_level = 2
+      AND ST_Contains(a.geom, ST_SetSRID(ST_MakePoint($3, $2), 4326))
+    LIMIT 1
+]]
+
+local pg = require("pg-pool")
+local lga_rows, _ = pg.exec(lga_sql, {tenant_id, lat, lon})
+local lga_row = lga_rows and lga_rows[1]
+
+-- Try geo_hierarchy_nodes lookup first
+local deep_node, geo_err = db.region_geo_lookup(tenant_id, lat, lon)
+
+if geo_err then
     ngx.status = 502
-    local body = cjson.encode({ error = "Database error", code = "DB_ERROR", detail = err })
+    local body = cjson.encode({error="Database error", code="DB_ERROR", detail=geo_err})
     ngx.say(body)
     return
 end
 
-if row then
-    -- Fetch country info from tenants table
-    local tenant, _ = db.get_tenant(tenant_id)
-    local country_pcode = (tenant and tenant.country_code) or ""
-    local country_name  = (tenant and tenant.country_name)  or ""
+local function cache_and_send(status, body)
+    if region_cache then region_cache:set(cache_key, status .. "\n" .. body, 3600) end
+    ngx.status = tonumber(status)
+    ngx.say(body)
+end
+
+if deep_node then
+    -- Walk ancestor chain to build full adm_N keys
+    local chain, chain_err = db.get_geo_node_chain(tonumber(deep_node.id))
+    if chain_err then
+        ngx.status = 502
+        ngx.say(cjson.encode({error="Database error", code="DB_ERROR", detail=chain_err}))
+        return
+    end
 
     local payload = {
         found         = true,
-        matched_level = row.matched_level,
-        -- HDX-style admin hierarchy objects only
-        adm_0 = {
-            pcode = country_pcode,
-            name  = country_name,
-        },
+        matched_level = "geo_node",
+        adm_0 = { pcode = country_pcode, name = country_name },
         adm_1 = {
-            pcode = row.state_pcode,
-            name  = row.state_name,
+            pcode = (lga_row and lga_row.state_pcode) or (deep_node.state_pcode),
+            name  = (lga_row and lga_row.state_name)  or "",
         },
     }
 
-    if row.matched_level == "zone" then
-        -- zone_chain is ordered shallowest→deepest; zone_level=1 maps to adm_3, level=2 to adm_4, etc.
-        local max_zone_level = 1
-        for _, z in ipairs(row.zone_chain or {}) do
-            local adm_key = "adm_" .. (tonumber(z.zone_level) + 2)
-            payload[adm_key] = {
-                pcode  = z.zone_pcode,
-                name   = z.zone_name,
-                color  = z.zone_color,
-            }
-            if z.zone_type_label then
-                payload[adm_key].type = z.zone_type_label
-            end
-            local lvl = tonumber(z.zone_level) or 1
-            if lvl > max_zone_level then max_zone_level = lvl end
-        end
-        -- LGA sits one slot above the deepest zone level
-        if row.lga_pcode then
-            local lga_key = "adm_" .. (max_zone_level + 3)
-            payload[lga_key] = { pcode = row.lga_pcode, name = row.lga_name }
-        end
-    else
-        payload.adm_4 = { pcode = row.lga_pcode, name = row.lga_name }
+    local max_level_order = 0
+    for _, node in ipairs(chain or {}) do
+        local lo = tonumber(node.level_order) or 1
+        local adm_key = "adm_" .. (lo + 2)
+        payload[adm_key] = {
+            pcode       = node.pcode,
+            name        = node.name,
+            color       = node.color,
+            level_label = node.level_label,
+        }
+        if lo > max_level_order then max_level_order = lo end
+    end
+
+    -- LGA sits one level above max
+    if lga_row then
+        local lga_key = "adm_" .. (max_level_order + 3)
+        payload[lga_key] = { pcode = lga_row.lga_pcode, name = lga_row.lga_name }
     end
 
     local body = cjson.encode(payload)
-    if region_cache then region_cache:set(cache_key, "200\n" .. body, 3600) end
-    ngx.say(body)
-else
-    local body = cjson.encode({
-        found = false,
-        error = "Coordinates do not fall within any known boundary for this tenant",
-        code  = "REGION_NOT_FOUND",
-        lat   = lat,
-        lon   = lon,
-    })
-    if region_cache then region_cache:set(cache_key, "404\n" .. body, 3600) end
-    ngx.status = 404
-    ngx.say(body)
+    cache_and_send("200", body)
+    return
 end
+
+-- Fallback: LGA only
+if lga_row then
+    local payload = {
+        found         = true,
+        matched_level = "lga",
+        adm_0 = { pcode = country_pcode, name = country_name },
+        adm_1 = { pcode = lga_row.state_pcode, name = lga_row.state_name },
+        adm_4 = { pcode = lga_row.lga_pcode, name = lga_row.lga_name },
+    }
+    local body = cjson.encode(payload)
+    cache_and_send("200", body)
+    return
+end
+
+-- Not found
+local body = cjson.encode({
+    found = false,
+    error = "Coordinates do not fall within any known boundary for this tenant",
+    code  = "REGION_NOT_FOUND",
+    lat   = lat,
+    lon   = lon,
+})
+cache_and_send("404", body)

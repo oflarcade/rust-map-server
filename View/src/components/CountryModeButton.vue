@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useCountryMode } from '../composables/useCountryMode';
 import { useTileInspector } from '../composables/useTileInspector';
 import { useBoundarySearch } from '../composables/useBoundarySearch';
@@ -8,12 +8,17 @@ import { useMapLayers } from '../composables/useMapLayers';
 import Button from 'primevue/button';
 import InputText from 'primevue/inputtext';
 import Tree from 'primevue/tree';
+import HierarchyEditorPanel from './HierarchyEditorPanel.vue';
 import Tag from 'primevue/tag';
 import type { TreeNode } from 'primevue/treenode';
 import type { HierarchyChild, HierarchyZone, HierarchyAdmNode, HierarchyState } from '../types/boundary';
 
 const { isCountryMode, countryTenants, tenantColors, visibleCountryTenants, toggleCountryTenant, loadCountryOverlays, clearCountryOverlays } = useCountryMode();
-const { hierarchyPanelOpen, layersPanelOpen } = useTileInspector();
+const { hierarchyPanelOpen, layersPanelOpen, hierarchyEditorOpen, resizeMap } = useTileInspector();
+
+watch(hierarchyEditorOpen, () => {
+  setTimeout(() => resizeMap(), 280);
+});
 const { filteredHierarchy, boundarySearch, boundaryHierarchy } = useBoundarySearch();
 const { flyToHierarchyItem, highlightBoundary, highlight } = useMapInteraction();
 const { baseControls, boundaryControls, toggleControl } = useMapLayers();
@@ -173,6 +178,12 @@ async function toggleMode() {
         Layers
         <span class="map-btn-chevron">{{ layersPanelOpen ? '▾' : '▸' }}</span>
       </button>
+      <button class="map-btn" :class="{ 'map-btn--active': hierarchyEditorOpen }"
+              @click="hierarchyEditorOpen = !hierarchyEditorOpen; hierarchyPanelOpen = false; layersPanelOpen = false">
+        <i class="pi pi-pen-to-square" style="font-size:10px"></i>
+        Hierarchy Editor
+        <span class="map-btn-chevron">{{ hierarchyEditorOpen ? '▾' : '▸' }}</span>
+      </button>
     </div>
 
     <!-- Geo Hierarchy panel (inline below row) -->
@@ -264,6 +275,11 @@ async function toggleMode() {
           </label>
         </div>
       </div>
+    </Transition>
+
+    <!-- Hierarchy editor — compact sheet under control rows (map stays visible) -->
+    <Transition name="panel-slide">
+      <HierarchyEditorPanel v-if="hierarchyEditorOpen" />
     </Transition>
 
   </div>
