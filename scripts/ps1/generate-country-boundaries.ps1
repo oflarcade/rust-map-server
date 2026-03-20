@@ -1,12 +1,7 @@
 #
-# generate-country-boundaries.ps1 - Generate country boundary PMTiles for non-India tenants
+# generate-country-boundaries.ps1 - Generate country boundary PMTiles from GeoJSON
 #
-# Targets:
-#   - kenya-boundaries
-#   - uganda-boundaries
-#   - liberia-boundaries
-#   - rwanda-boundaries
-#   - central-african-republic-boundaries
+# Targets include: kenya, uganda, liberia, rwanda, car, india
 #
 # Input files required in boundaries/:
 #   - kenya-boundaries.geojson
@@ -43,12 +38,13 @@ $Countries = @(
     @{ Name = "liberia"; File = "liberia-boundaries" }
     @{ Name = "rwanda"; File = "rwanda-boundaries" }
     @{ Name = "car"; File = "central-african-republic-boundaries" }
+    @{ Name = "india"; File = "india-boundaries" }
 )
 
 if ($Country -ne "") {
     $Countries = $Countries | Where-Object { $_.Name -eq $Country }
     if ($Countries.Count -eq 0) {
-        Log-Error "Country '$Country' not found. Available: kenya, uganda, liberia, rwanda, car"
+        Log-Error "Country '$Country' not found. Available: kenya, uganda, liberia, rwanda, car, india"
         exit 1
     }
 }

@@ -130,7 +130,8 @@ Vue FE appends `?t=${tenantId}` to all GeoJSON/hierarchy URLs to make per-tenant
 | `tileserver/lua/origin-whitelist.lua` | Origin whitelist + CORS headers |
 | `tileserver/lua/pgmoon/` | pgmoon Lua Postgres driver (vendored, 8 files, no luarocks) |
 | `scripts/schema.sql` | PostGIS schema (tenants, adm_features, tenant_scope, zones) with multi-level zone columns |
-| `scripts/import-hdx-to-pg.js` | Node.js: HDX GeoJSON → PostgreSQL import; sets level_label for adm3+ rows |
+| `scripts/import-hdx-to-pg.js` | Node.js: HDX GeoJSON + optional `boundaries/india-boundaries.geojson` → PostgreSQL; `tenant_scope` for India tenants 5/15 |
+| `scripts/extract-india-state-clips.js` | Node.js: build `data/sources/india-states/{andhrapradesh,manipur}.json` from `india-boundaries.geojson` for Planetiler |
 | `scripts/import-inec-to-pg.js` | Node.js: Nigeria INEC electoral GeoJSON → adm_features (senatorial/constituency/emirate/ward) |
 | `scripts/ps1/download-inec.ps1` | PowerShell: download Nigeria INEC electoral boundaries from HDX |
 | `scripts/k6-region-stress.js` | k6 stress test: /region endpoint only |
@@ -157,6 +158,23 @@ Scripts are grouped: **Bash** in `scripts/sh/`, **PowerShell** in `scripts/ps1/`
 .\scripts\ps1\generate-tenants.ps1 -Tenant 11 -Profile full
 .\scripts\ps1\generate-nigeria-tenants.ps1        # Nigeria z6-14 (outputs pmtiles\z6\)
 ```
+
+### India tenants (OSM only — no HDX)
+
+Order matters: boundary GeoJSON → state clip polygons → base map PMTiles → (optional) boundary PMTiles are already built from the same GeoJSON.
+
+**Bash:**
+```bash
+# Requires data/osm/india-latest.osm.pbf
+./scripts/sh/generate-osm-boundaries.sh --country india    # boundaries/india-boundaries.geojson (long run, large file)
+./scripts/sh/generate-country-boundaries.sh --country india # boundaries/india-boundaries.pmtiles for Martin
+node scripts/extract-india-state-clips.js                  # data/sources/india-states/*.json for Planetiler --polygon
+./scripts/sh/generate-tenants.sh --tenant 5               # india-andhrapradesh.pmtiles
+./scripts/sh/generate-tenants.sh --tenant 15               # india-manipur.pmtiles
+cd scripts && node import-hdx-to-pg.js                     # loads IN rows + tenant_scope when india-boundaries.geojson exists
+```
+
+**PowerShell:** use `.\scripts\ps1\generate-osm-boundaries.ps1 -Country india` and `generate-country-boundaries.ps1 -Country india`; OSM PBF lives under `osm-data\` per `setup.ps1`.
 
 **Bash (macOS/Linux):**
 ```bash

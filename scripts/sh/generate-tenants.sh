@@ -222,7 +222,7 @@ for DEF in "${FILTERED_DEFS[@]}"; do
 
         GEOJSON_FILE="$STATES_BASE/${T_COUNTRY}-states/${SLUGS}.json"
         if [ ! -f "$GEOJSON_FILE" ]; then
-            log_error "GeoJSON file missing: $GEOJSON_FILE - run bounds-from-hdx.py or generate-nigeria-tenants.sh first"
+            log_error "GeoJSON file missing: $GEOJSON_FILE — for India: node scripts/extract-india-state-clips.js; else bounds-from-hdx.py / generate-nigeria-tenants.sh"
             FAILED+=("Tenant $T_ID ($T_NAME): missing GeoJSON file")
             continue
         fi
@@ -310,7 +310,7 @@ with open('$POLY_FILE', 'w') as out:
 
             GEOJSON_FILE="$STATES_BASE/${T_COUNTRY}-states/${SLUG}.json"
             if [ ! -f "$GEOJSON_FILE" ]; then
-                log_error "GeoJSON file missing: $GEOJSON_FILE - run bounds-from-hdx.py or generate-nigeria-tenants.sh first"
+                log_error "GeoJSON file missing: $GEOJSON_FILE — for India: node scripts/extract-india-state-clips.js; else bounds-from-hdx.py / generate-nigeria-tenants.sh"
                 FAILED+=("Tenant $T_ID ($T_NAME): missing GeoJSON file")
                 continue
             fi

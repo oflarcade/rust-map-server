@@ -15,7 +15,8 @@
 #   ./scripts/sh/generate-osm-boundaries.sh --country kenya    # Single country
 #   ./scripts/sh/generate-osm-boundaries.sh --force            # Regenerate existing
 #
-# Countries: kenya, uganda, liberia, rwanda, car
+# Countries: kenya, uganda, liberia, rwanda, car, india
+# Note: india uses the full Geofabrik extract — GeoJSON output is large; runs a long time.
 #
 set -euo pipefail
 
@@ -47,6 +48,7 @@ COUNTRY_DEFS=(
     "liberia|liberia-latest.osm.pbf|liberia-boundaries"
     "rwanda|rwanda-latest.osm.pbf|rwanda-boundaries"
     "car|central-african-republic-latest.osm.pbf|central-african-republic-boundaries"
+    "india|india-latest.osm.pbf|india-boundaries"
 )
 
 # Filter to single country if specified
@@ -59,7 +61,7 @@ if [ -n "$COUNTRY_FILTER" ]; then
         fi
     done
     if [ ${#FILTERED[@]} -eq 0 ]; then
-        log_error "Country '$COUNTRY_FILTER' not found. Available: kenya, uganda, liberia, rwanda, car"
+        log_error "Country '$COUNTRY_FILTER' not found. Available: kenya, uganda, liberia, rwanda, car, india"
         exit 1
     fi
     COUNTRY_DEFS=("${FILTERED[@]}")

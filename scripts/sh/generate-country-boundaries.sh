@@ -1,13 +1,10 @@
 #!/usr/bin/env bash
 #
-# generate-country-boundaries.sh - Generate country boundary PMTiles for non-India tenants
+# generate-country-boundaries.sh - Generate country boundary PMTiles from GeoJSON
 #
 # Targets:
-#   - kenya-boundaries
-#   - uganda-boundaries
-#   - liberia-boundaries
-#   - rwanda-boundaries
-#   - central-african-republic-boundaries
+#   - kenya-boundaries, uganda-boundaries, liberia-boundaries, rwanda-boundaries,
+#   - central-african-republic-boundaries, india-boundaries
 #
 # Requires: tippecanoe (brew install tippecanoe on macOS) or Docker
 #
@@ -46,6 +43,7 @@ COUNTRY_DEFS=(
     "liberia|liberia-boundaries"
     "rwanda|rwanda-boundaries"
     "car|central-african-republic-boundaries"
+    "india|india-boundaries"
 )
 
 if [ -n "$COUNTRY_FILTER" ]; then
@@ -57,7 +55,7 @@ if [ -n "$COUNTRY_FILTER" ]; then
         fi
     done
     if [ ${#FILTERED[@]} -eq 0 ]; then
-        log_error "Country '$COUNTRY_FILTER' not found. Available: kenya, uganda, liberia, rwanda, car"
+        log_error "Country '$COUNTRY_FILTER' not found. Available: kenya, uganda, liberia, rwanda, car, india"
         exit 1
     fi
     COUNTRY_DEFS=("${FILTERED[@]}")

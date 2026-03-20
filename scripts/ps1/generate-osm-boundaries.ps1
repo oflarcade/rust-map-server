@@ -14,7 +14,8 @@
 #   .\scripts\generate-osm-boundaries.ps1 -Country kenya     # Single country
 #   .\scripts\generate-osm-boundaries.ps1 -Force             # Regenerate existing
 #
-# Countries: kenya, uganda, liberia, rwanda, car
+# Countries: kenya, uganda, liberia, rwanda, car, india
+# Note: india — large Geofabrik extract; long runtime and large GeoJSON output.
 #
 
 param(
@@ -40,13 +41,14 @@ $Countries = @(
     @{ Name = "liberia";                  OsmFile = "liberia-latest.osm.pbf";                  File = "liberia-boundaries" }
     @{ Name = "rwanda";                   OsmFile = "rwanda-latest.osm.pbf";                   File = "rwanda-boundaries" }
     @{ Name = "car";                      OsmFile = "central-african-republic-latest.osm.pbf"; File = "central-african-republic-boundaries" }
+    @{ Name = "india";                    OsmFile = "india-latest.osm.pbf";                    File = "india-boundaries" }
 )
 
 # Filter to single country if specified
 if ($Country -ne "") {
     $Countries = $Countries | Where-Object { $_.Name -eq $Country }
     if ($Countries.Count -eq 0) {
-        Log-Error "Country '$Country' not found. Available: kenya, uganda, liberia, rwanda, car"
+        Log-Error "Country '$Country' not found. Available: kenya, uganda, liberia, rwanda, car, india"
         exit 1
     }
 }

@@ -219,7 +219,7 @@ foreach ($t in $Tenants) {
         # Need polygon file for exact state clipping
         $geojsonFile = Join-Path $StatesBase "${country}-states\${slugs}.json"
         if (-not (Test-Path $geojsonFile)) {
-            Log-Error "GeoJSON file missing: $geojsonFile - run bounds-from-hdx.py or generate-nigeria-tenants.ps1 first"
+            Log-Error "GeoJSON file missing: $geojsonFile — for India run: node scripts/extract-india-state-clips.js (after india-boundaries.geojson); for HDX countries use bounds-from-hdx.py"
             $failed += "Tenant $($t.Id) ($($t.Name)): missing GeoJSON file"
             continue
         }
@@ -315,7 +315,7 @@ with open(r'$polyFile', 'w') as out:
             # Need polygon file for exact state clipping
             $geojsonFile = Join-Path $StatesBase "${country}-states\${slug}.json"
             if (-not (Test-Path $geojsonFile)) {
-                Log-Error "GeoJSON file missing: $geojsonFile - run bounds-from-hdx.py or generate-nigeria-tenants.ps1 first"
+                Log-Error "GeoJSON file missing: $geojsonFile — for India run: node scripts/extract-india-state-clips.js (after india-boundaries.geojson); for HDX countries use bounds-from-hdx.py"
                 $failed += "Tenant $($t.Id) ($($t.Name)): missing GeoJSON file"
                 continue
             }

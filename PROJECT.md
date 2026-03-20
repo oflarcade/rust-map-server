@@ -518,7 +518,7 @@ hdx/
 
 ### Pending
 
-- Boundary tile generation for India (Andhra Pradesh, Manipur)
+- India boundary + PostGIS pipeline: `generate-osm-boundaries` / `generate-country-boundaries` (`india`), `extract-india-state-clips.js`, `import-hdx-to-pg.js` (India OSM + `tenant_scope` 5/15) — see CLAUDE.md
 - Port 3000 firewall rule in production (Martin direct access should be internal only)
 - Production domain + TLS termination in front of OpenResty
 - Attribution display in client map ("© OpenStreetMap contributors" — ODbL requirement)

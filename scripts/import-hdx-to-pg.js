@@ -55,6 +55,12 @@ const NIGERIA_STATE_SCOPE = {
   18: ['NG018'],           // Jigawa
 };
 
+// India state tenants — pcodes must match importIndiaOsmBoundaries() (ISO 3166-2 style)
+const INDIA_STATE_SCOPE = {
+  5:  ['IN-AP'],   // Andhra Pradesh (tenant: Bridge India AP)
+  15: ['IN-MN'],  // Manipur
+};
+
 // HDX country prefix -> ISO2 country code (for grouping files)
 const HDX_PREFIX_TO_ISO2 = {
   'nigeria':                  'NG',
@@ -88,6 +94,112 @@ async function insertTenants(client) {
     `, [t.tenant_id, t.country_code, t.country_name, t.tile_source, t.hdx_prefix]);
   }
   ok(`Inserted ${TENANTS.length} tenants`);
+}
+
+const INDIA_BOUNDARIES_GEOJSON = path.join(__dirname, '../boundaries/india-boundaries.geojson');
+
+function inNormName(s) {
+  return String(s || '').toLowerCase().trim().replace(/\s+/g, ' ');
+}
+
+// ISO 3166-2 codes for tenant-scoped states (must match extract-india-state-clips.js targets)
+const IN_STATE_NAME_TO_PCODE = new Map([
+  [inNormName('Andhra Pradesh'), 'IN-AP'],
+  [inNormName('Manipur'), 'IN-MN'],
+]);
+
+function inPickName(props) {
+  if (!props) return '';
+  return props['name:en'] || props.name_en || props.name || '';
+}
+
+function inOsmId(props) {
+  const v = props.osm_id ?? props['@id'] ?? props.osm_id_way;
+  if (v == null || v === '') return null;
+  const s = String(v).replace(/^relation\//i, '').replace(/^r/i, '');
+  return s || null;
+}
+
+// ---------------------------------------------------------------------------
+// India adm_features from OSM-derived GeoJSON (ogr2ogr multipolygons layer)
+// ---------------------------------------------------------------------------
+async function importIndiaOsmBoundaries(client) {
+  if (!fs.existsSync(INDIA_BOUNDARIES_GEOJSON)) {
+    warn(`India OSM boundaries missing — skip PostGIS India import (generate: generate-osm-boundaries --country india)`);
+    return;
+  }
+
+  log('Importing adm_features from boundaries/india-boundaries.geojson (OSM admin 4/5/6)...');
+  const geo = JSON.parse(fs.readFileSync(INDIA_BOUNDARIES_GEOJSON, 'utf8'));
+  const features = geo.features || [];
+  /** OSM admin_level 4=state, 5=district, 6=subdistrict → COD-style adm 1/2/3 */
+  const AL_MAP = { 4: 1, 5: 2, 6: 3, '4': 1, '5': 2, '6': 3 };
+  let n = 0;
+
+  for (const feat of features) {
+    const p = feat.properties || {};
+    const alRaw = p.admin_level;
+    const admLevel = AL_MAP[alRaw] ?? AL_MAP[String(alRaw).trim()];
+    if (!admLevel || !feat.geometry) continue;
+
+    const name = inPickName(p);
+    if (!name) continue;
+
+    const oid = inOsmId(p);
+    let pcode;
+    if (admLevel === 1) {
+      pcode = IN_STATE_NAME_TO_PCODE.get(inNormName(name)) || (oid ? `IN-R${oid}` : null);
+    } else {
+      pcode = oid ? `IN-R${oid}` : null;
+    }
+
+    if (!pcode || pcode.length > 30) {
+      continue;
+    }
+
+    const levelLabel = getLabel('IN', admLevel);
+    const geomJson = JSON.stringify(feat.geometry);
+
+    await client.query(`
+      INSERT INTO adm_features
+        (country_code, adm_level, pcode, name, parent_pcode, geom, level_label)
+      VALUES (
+        'IN', $1, $2, $3, NULL,
+        ST_Multi(ST_GeomFromGeoJSON($4)),
+        $5
+      )
+      ON CONFLICT (pcode) DO UPDATE SET
+        country_code = EXCLUDED.country_code,
+        adm_level    = EXCLUDED.adm_level,
+        name         = EXCLUDED.name,
+        geom         = EXCLUDED.geom,
+        level_label  = EXCLUDED.level_label
+    `, [admLevel, pcode, name, geomJson, levelLabel]);
+    n++;
+  }
+
+  ok(`India OSM features upserted: ${n}`);
+
+  log('Linking India parent_pcode (spatial containment)...');
+  const u2 = await client.query(`
+    UPDATE adm_features a SET parent_pcode = s.pcode
+    FROM adm_features s
+    WHERE a.country_code = 'IN' AND s.country_code = 'IN'
+      AND s.adm_level = 1 AND a.adm_level = 2
+      AND a.parent_pcode IS NULL
+      AND ST_Contains(s.geom, ST_PointOnSurface(a.geom))
+  `);
+  const u3 = await client.query(`
+    UPDATE adm_features a SET parent_pcode = d.pcode
+    FROM adm_features d
+    WHERE a.country_code = 'IN' AND d.country_code = 'IN'
+      AND d.adm_level = 2 AND a.adm_level = 3
+      AND a.parent_pcode IS NULL
+      AND ST_Contains(d.geom, ST_PointOnSurface(a.geom))
+  `);
+  if (u2.rowCount > 0 || u3.rowCount > 0) {
+    ok(`  parent_pcode set: ${u2.rowCount} adm2→state, ${u3.rowCount} adm3→district`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -169,6 +281,8 @@ async function importAdmFeatures(client) {
     }
   }
 
+  await importIndiaOsmBoundaries(client);
+
   // Fill in any missing area/center via PostGIS (catches features without pre-computed values)
   log('Computing missing area_sqkm and centers via PostGIS...');
   const updated = await client.query(`
@@ -216,12 +330,6 @@ async function populateTenantScope(client) {
   for (const tenant of TENANTS) {
     const { tenant_id, country_code, hdx_prefix } = tenant;
 
-    if (!hdx_prefix) {
-      // Rwanda, India — no HDX data, no scope to populate
-      warn(`  Tenant ${tenant_id} (${tenant.country_name}): no HDX data — skipping scope`);
-      continue;
-    }
-
     if (NIGERIA_STATE_SCOPE[tenant_id]) {
       // Nigerian state tenant — scope to specific state(s) at adm2 level
       const statePcodes = NIGERIA_STATE_SCOPE[tenant_id];
@@ -247,6 +355,42 @@ async function populateTenantScope(client) {
         log(`    State ${statePcode}: ${res.rowCount} LGAs added`);
       }
 
+    } else if (INDIA_STATE_SCOPE[tenant_id]) {
+      const statePcodes = INDIA_STATE_SCOPE[tenant_id];
+      log(`  Tenant ${tenant_id}: India state tenant — ${statePcodes.join(', ')}`);
+
+      for (const statePcode of statePcodes) {
+        await client.query(`
+          INSERT INTO tenant_scope(tenant_id, pcode)
+          SELECT $1, pcode FROM adm_features
+          WHERE pcode = $2
+          ON CONFLICT DO NOTHING
+        `, [tenant_id, statePcode]);
+
+        const r2 = await client.query(`
+          INSERT INTO tenant_scope(tenant_id, pcode)
+          SELECT $1, pcode FROM adm_features
+          WHERE country_code = 'IN' AND adm_level = 2 AND parent_pcode = $2
+          ON CONFLICT DO NOTHING
+          RETURNING pcode
+        `, [tenant_id, statePcode]);
+        log(`    State ${statePcode}: ${r2.rowCount} districts (adm_level 2)`);
+
+        const r3 = await client.query(`
+          INSERT INTO tenant_scope(tenant_id, pcode)
+          SELECT $1, a.pcode FROM adm_features a
+          WHERE a.country_code = 'IN' AND a.adm_level = 3
+            AND a.parent_pcode IN (
+              SELECT pcode FROM adm_features
+              WHERE country_code = 'IN' AND adm_level = 2 AND parent_pcode = $2
+            )
+          ON CONFLICT DO NOTHING
+          RETURNING pcode
+        `, [tenant_id, statePcode]);
+        log(`    State ${statePcode}: ${r3.rowCount} sub-districts (adm_level 3)`);
+      }
+    } else if (!hdx_prefix) {
+      warn(`  Tenant ${tenant_id} (${tenant.country_name}): no HDX / India scope — skipping`);
     } else {
       // Full-country tenant — scope to all adm levels for this country
       log(`  Tenant ${tenant_id}: full country (${country_code})`);
