@@ -132,6 +132,7 @@ Vue FE appends `?t=${tenantId}` to all GeoJSON/hierarchy URLs to make per-tenant
 | `scripts/schema.sql` | PostGIS schema (tenants, adm_features, tenant_scope, zones) with multi-level zone columns |
 | `scripts/import-hdx-to-pg.js` | Node.js: HDX GeoJSON + optional `boundaries/india-boundaries.geojson` → PostgreSQL; `tenant_scope` for India tenants 5/15 |
 | `scripts/extract-india-state-clips.js` | Node.js: build `data/sources/india-states/{andhrapradesh,manipur}.json` from `india-boundaries.geojson` for Planetiler |
+| `scripts/lib/osm-admin-names.js` | Shared OSM GeoJSON name normalization for India extract + import |
 | `scripts/import-inec-to-pg.js` | Node.js: Nigeria INEC electoral GeoJSON → adm_features (senatorial/constituency/emirate/ward) |
 | `scripts/ps1/download-inec.ps1` | PowerShell: download Nigeria INEC electoral boundaries from HDX |
 | `scripts/k6-region-stress.js` | k6 stress test: /region endpoint only |

@@ -20,6 +20,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { normalizeAdminName, pickOsmFeatureName } = require('./lib/osm-admin-names');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const DEFAULT_INPUT = path.join(REPO_ROOT, 'boundaries/india-boundaries.geojson');
@@ -31,64 +32,48 @@ const TARGET_STATES = {
   manipur: ['manipur'],
 };
 
-function norm(s) {
-  return String(s || '')
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, ' ');
-}
-
-function pickName(props) {
-  if (!props) return '';
-  return props['name:en'] || props.name_en || props.name || '';
-}
-
 function isStateLevel(props) {
   const al = String(props.admin_level ?? '').trim();
   return al === '4' || al === 4;
 }
 
-function main() {
-  const inputPath = path.resolve(process.argv[2] || DEFAULT_INPUT);
-
-  if (!fs.existsSync(inputPath)) {
-    console.error(`[ERROR] Missing ${inputPath}`);
-    console.error('  Generate it first: ./scripts/sh/generate-osm-boundaries.sh --country india');
-    process.exit(1);
+function buildAliasToSlug() {
+  const aliases = {};
+  for (const [slug, names] of Object.entries(TARGET_STATES)) {
+    for (const n of names) {
+      aliases[normalizeAdminName(n)] = slug;
+    }
   }
+  return aliases;
+}
 
+function readFeatureCollection(inputPath) {
   const raw = fs.readFileSync(inputPath, 'utf8');
-  const geo = JSON.parse(raw);
-  const features = geo.features || [];
+  return JSON.parse(raw);
+}
 
+function collectStateClipFeatures(features, aliases) {
   const bySlug = {};
   for (const slug of Object.keys(TARGET_STATES)) {
     bySlug[slug] = [];
   }
-
-  const aliases = {};
-  for (const [slug, names] of Object.entries(TARGET_STATES)) {
-    for (const n of names) {
-      aliases[norm(n)] = slug;
-    }
-  }
-
   for (const feat of features) {
     const p = feat.properties || {};
     if (!isStateLevel(p)) continue;
-    const key = norm(pickName(p));
+    const key = normalizeAdminName(pickOsmFeatureName(p));
     const slug = aliases[key];
-    if (!slug) continue;
-    if (!feat.geometry) continue;
+    if (!slug || !feat.geometry) continue;
     bySlug[slug].push({
       type: 'Feature',
-      properties: { name: pickName(p), admin_level: String(p.admin_level ?? '4') },
+      properties: { name: pickOsmFeatureName(p), admin_level: String(p.admin_level ?? '4') },
       geometry: feat.geometry,
     });
   }
+  return bySlug;
+}
 
+function writeClipFiles(bySlug) {
   fs.mkdirSync(OUT_DIR, { recursive: true });
-
   let ok = 0;
   for (const [slug, feats] of Object.entries(bySlug)) {
     if (feats.length === 0) {
@@ -101,9 +86,30 @@ function main() {
     console.log(`[OK] ${outPath} (${feats.length} feature(s))`);
     ok++;
   }
+  return ok;
+}
 
-  if (ok === 0) {
-    console.error('[ERROR] No state clip files written — check OSM names in india-boundaries.geojson');
+function main() {
+  const inputPath = path.resolve(process.argv[2] || DEFAULT_INPUT);
+
+  if (!fs.existsSync(inputPath)) {
+    console.error(`[ERROR] Missing ${inputPath}`);
+    console.error('  Generate it first: ./scripts/sh/generate-osm-boundaries.sh --country india');
+    process.exit(1);
+  }
+
+  try {
+    const geo = readFeatureCollection(inputPath);
+    const features = geo.features || [];
+    const aliases = buildAliasToSlug();
+    const bySlug = collectStateClipFeatures(features, aliases);
+    const ok = writeClipFiles(bySlug);
+    if (ok === 0) {
+      console.error('[ERROR] No state clip files written — check OSM names in india-boundaries.geojson');
+      process.exit(1);
+    }
+  } catch (err) {
+    console.error('[ERROR] Failed to read or parse GeoJSON:', err.message);
     process.exit(1);
   }
 }

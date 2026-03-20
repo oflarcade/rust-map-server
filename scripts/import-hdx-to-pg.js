@@ -14,6 +14,7 @@ const path = require('path');
 const fs   = require('fs');
 const { Client } = require('pg');
 const { getLabel } = require('./admin-level-labels');
+const { normalizeAdminName, pickOsmFeatureName } = require('./lib/osm-admin-names');
 
 const HDX_DIR = path.join(__dirname, '../data/hdx');
 
@@ -98,88 +99,77 @@ async function insertTenants(client) {
 
 const INDIA_BOUNDARIES_GEOJSON = path.join(__dirname, '../boundaries/india-boundaries.geojson');
 
-function inNormName(s) {
-  return String(s || '').toLowerCase().trim().replace(/\s+/g, ' ');
-}
-
 // ISO 3166-2 codes for tenant-scoped states (must match extract-india-state-clips.js targets)
 const IN_STATE_NAME_TO_PCODE = new Map([
-  [inNormName('Andhra Pradesh'), 'IN-AP'],
-  [inNormName('Manipur'), 'IN-MN'],
+  [normalizeAdminName('Andhra Pradesh'), 'IN-AP'],
+  [normalizeAdminName('Manipur'), 'IN-MN'],
 ]);
 
-function inPickName(props) {
-  if (!props) return '';
-  return props['name:en'] || props.name_en || props.name || '';
+/** OSM admin_level 4=state, 5=district, 6=subdistrict → COD-style adm 1/2/3 */
+const OSM_ADMIN_TO_INDIA_ADM = { 4: 1, 5: 2, 6: 3, '4': 1, '5': 2, '6': 3 };
+
+function osmAdminToIndiaAdmLevel(alRaw) {
+  if (alRaw == null) return null;
+  return OSM_ADMIN_TO_INDIA_ADM[alRaw] ?? OSM_ADMIN_TO_INDIA_ADM[String(alRaw).trim()] ?? null;
 }
 
-function inOsmId(props) {
+function stripOsmRelationId(props) {
   const v = props.osm_id ?? props['@id'] ?? props.osm_id_way;
   if (v == null || v === '') return null;
   const s = String(v).replace(/^relation\//i, '').replace(/^r/i, '');
   return s || null;
 }
 
-// ---------------------------------------------------------------------------
-// India adm_features from OSM-derived GeoJSON (ogr2ogr multipolygons layer)
-// ---------------------------------------------------------------------------
-async function importIndiaOsmBoundaries(client) {
-  if (!fs.existsSync(INDIA_BOUNDARIES_GEOJSON)) {
-    warn(`India OSM boundaries missing — skip PostGIS India import (generate: generate-osm-boundaries --country india)`);
-    return;
+function resolveIndiaPcode(admLevel, name, oid) {
+  if (admLevel === 1) {
+    return IN_STATE_NAME_TO_PCODE.get(normalizeAdminName(name)) || (oid ? `IN-R${oid}` : null);
   }
+  return oid ? `IN-R${oid}` : null;
+}
 
-  log('Importing adm_features from boundaries/india-boundaries.geojson (OSM admin 4/5/6)...');
-  const geo = JSON.parse(fs.readFileSync(INDIA_BOUNDARIES_GEOJSON, 'utf8'));
-  const features = geo.features || [];
-  /** OSM admin_level 4=state, 5=district, 6=subdistrict → COD-style adm 1/2/3 */
-  const AL_MAP = { 4: 1, 5: 2, 6: 3, '4': 1, '5': 2, '6': 3 };
-  let n = 0;
-
-  for (const feat of features) {
-    const p = feat.properties || {};
-    const alRaw = p.admin_level;
-    const admLevel = AL_MAP[alRaw] ?? AL_MAP[String(alRaw).trim()];
-    if (!admLevel || !feat.geometry) continue;
-
-    const name = inPickName(p);
-    if (!name) continue;
-
-    const oid = inOsmId(p);
-    let pcode;
-    if (admLevel === 1) {
-      pcode = IN_STATE_NAME_TO_PCODE.get(inNormName(name)) || (oid ? `IN-R${oid}` : null);
-    } else {
-      pcode = oid ? `IN-R${oid}` : null;
-    }
-
-    if (!pcode || pcode.length > 30) {
-      continue;
-    }
-
-    const levelLabel = getLabel('IN', admLevel);
-    const geomJson = JSON.stringify(feat.geometry);
-
-    await client.query(`
-      INSERT INTO adm_features
-        (country_code, adm_level, pcode, name, parent_pcode, geom, level_label)
-      VALUES (
-        'IN', $1, $2, $3, NULL,
-        ST_Multi(ST_GeomFromGeoJSON($4)),
-        $5
-      )
-      ON CONFLICT (pcode) DO UPDATE SET
-        country_code = EXCLUDED.country_code,
-        adm_level    = EXCLUDED.adm_level,
-        name         = EXCLUDED.name,
-        geom         = EXCLUDED.geom,
-        level_label  = EXCLUDED.level_label
-    `, [admLevel, pcode, name, geomJson, levelLabel]);
-    n++;
+function readIndiaBoundaryFeaturesFromDisk() {
+  try {
+    const raw = fs.readFileSync(INDIA_BOUNDARIES_GEOJSON, 'utf8');
+    const geo = JSON.parse(raw);
+    return { ok: true, features: geo.features || [] };
+  } catch (err) {
+    return { ok: false, err };
   }
+}
 
-  ok(`India OSM features upserted: ${n}`);
+async function upsertIndiaBoundaryRow(client, feat) {
+  const p = feat.properties || {};
+  const admLevel = osmAdminToIndiaAdmLevel(p.admin_level);
+  if (!admLevel || !feat.geometry) return false;
 
+  const name = pickOsmFeatureName(p);
+  if (!name) return false;
+
+  const pcode = resolveIndiaPcode(admLevel, name, stripOsmRelationId(p));
+  if (!pcode || pcode.length > 30) return false;
+
+  const levelLabel = getLabel('IN', admLevel);
+  const geomJson = JSON.stringify(feat.geometry);
+
+  await client.query(`
+    INSERT INTO adm_features
+      (country_code, adm_level, pcode, name, parent_pcode, geom, level_label)
+    VALUES (
+      'IN', $1, $2, $3, NULL,
+      ST_Multi(ST_GeomFromGeoJSON($4)),
+      $5
+    )
+    ON CONFLICT (pcode) DO UPDATE SET
+      country_code = EXCLUDED.country_code,
+      adm_level    = EXCLUDED.adm_level,
+      name         = EXCLUDED.name,
+      geom         = EXCLUDED.geom,
+      level_label  = EXCLUDED.level_label
+  `, [admLevel, pcode, name, geomJson, levelLabel]);
+  return true;
+}
+
+async function linkIndiaParentPcodes(client) {
   log('Linking India parent_pcode (spatial containment)...');
   const u2 = await client.query(`
     UPDATE adm_features a SET parent_pcode = s.pcode
@@ -200,6 +190,33 @@ async function importIndiaOsmBoundaries(client) {
   if (u2.rowCount > 0 || u3.rowCount > 0) {
     ok(`  parent_pcode set: ${u2.rowCount} adm2→state, ${u3.rowCount} adm3→district`);
   }
+}
+
+async function importIndiaOsmBoundaries(client) {
+  if (!fs.existsSync(INDIA_BOUNDARIES_GEOJSON)) {
+    warn('India OSM boundaries missing — skip PostGIS India import (generate: generate-osm-boundaries --country india)');
+    return;
+  }
+
+  log('Importing adm_features from boundaries/india-boundaries.geojson (OSM admin 4/5/6)...');
+  const disk = readIndiaBoundaryFeaturesFromDisk();
+  if (!disk.ok) {
+    warn(`India boundaries read/parse failed: ${disk.err.message}`);
+    return;
+  }
+  const { features } = disk;
+
+  let n = 0;
+  for (const feat of features) {
+    try {
+      if (await upsertIndiaBoundaryRow(client, feat)) n++;
+    } catch (err) {
+      warn(`  Skip India feature (DB/geom): ${err.message}`);
+    }
+  }
+
+  ok(`India OSM features upserted: ${n}`);
+  await linkIndiaParentPcodes(client);
 }
 
 // ---------------------------------------------------------------------------
@@ -456,4 +473,7 @@ async function main() {
   }
 }
 
-main();
+main().catch((fatal) => {
+  console.error('[ERROR]', fatal.message || fatal);
+  process.exit(1);
+});
