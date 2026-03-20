@@ -2,6 +2,15 @@
 import { ref, watch, computed } from 'vue';
 import type { Zone } from '../composables/useZoneManager';
 import type { HierarchyState } from '../composables/useTileInspector';
+import InputText from 'primevue/inputtext';
+import ColorPicker from 'primevue/colorpicker';
+import RadioButton from 'primevue/radiobutton';
+import Select from 'primevue/select';
+import Checkbox from 'primevue/checkbox';
+import Button from 'primevue/button';
+import { useToast } from 'primevue/usetoast';
+
+const toast = useToast();
 
 const props = defineProps<{
   editZone: Zone | null;
@@ -20,35 +29,42 @@ const DEFAULT_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '
 const name = ref('');
 const typeLabel = ref('');
 const color = ref('#3b82f6');
-const parentPcode = ref('');
-const selectedPcodes = ref<Set<string>>(new Set());
+// ColorPicker uses hex WITHOUT '#'
+const colorHex = computed({
+  get: () => color.value.replace('#', ''),
+  set: (v: string) => { color.value = '#' + v; },
+});
+const parentPcode = ref<string | null>(null);
+const selectedPcodes = ref<string[]>([]);
 const childrenType = ref<'lga' | 'zone'>('lga');
+const isEditing = computed(() => !!props.editZone);
 
 watch(() => props.editZone, (z) => {
   if (z) {
     name.value = z.zone_name;
     typeLabel.value = z.zone_type_label ?? '';
     color.value = z.color ?? '#3b82f6';
-    parentPcode.value = z.parent_pcode ?? '';
-    selectedPcodes.value = new Set(z.constituent_pcodes ?? []);
+    parentPcode.value = z.parent_pcode ?? null;
+    selectedPcodes.value = z.constituent_pcodes ?? [];
     childrenType.value = z.children_type ?? 'lga';
   } else {
     name.value = '';
     typeLabel.value = '';
     color.value = DEFAULT_COLORS[0];
-    parentPcode.value = '';
-    selectedPcodes.value = new Set();
+    parentPcode.value = null;
+    selectedPcodes.value = [];
     childrenType.value = 'lga';
   }
 }, { immediate: true });
 
-const parentStateOptions = computed(() => props.hierarchyStates);
+const parentOptions = computed(() =>
+  props.hierarchyStates.map((s) => ({ pcode: s.pcode, name: s.name }))
+);
 
 const childOptions = computed(() => {
   if (childrenType.value === 'zone') {
     return props.existingZones.map((z) => ({ pcode: z.zone_pcode, name: z.zone_name }));
   }
-  // LGA mode: show LGAs of the selected parent state (or all if no parent)
   const parent = parentPcode.value;
   if (!parent) {
     return props.hierarchyStates.flatMap((s) => s.lgas ?? []);
@@ -57,180 +73,138 @@ const childOptions = computed(() => {
   return state ? (state.lgas ?? []) : [];
 });
 
-function togglePcode(pcode: string) {
-  const next = new Set(selectedPcodes.value);
-  if (next.has(pcode)) next.delete(pcode); else next.add(pcode);
-  selectedPcodes.value = next;
-}
-
 function selectAll() {
-  selectedPcodes.value = new Set(childOptions.value.map((c) => c.pcode));
+  selectedPcodes.value = childOptions.value.map((c) => c.pcode);
 }
 function clearAll() {
-  selectedPcodes.value = new Set();
+  selectedPcodes.value = [];
 }
 
-function submit() {
+async function submit() {
   if (!name.value.trim()) return;
   const payload: Record<string, unknown> = {
     zone_name: name.value.trim(),
     zone_type_label: typeLabel.value.trim() || null,
     color: color.value,
-    constituent_pcodes: Array.from(selectedPcodes.value),
+    constituent_pcodes: selectedPcodes.value,
     children_type: childrenType.value,
   };
   if (parentPcode.value) payload.parent_pcode = parentPcode.value;
-  emit('save', payload);
+  try {
+    emit('save', payload);
+    toast.add({ severity: 'success', summary: 'Zone saved', life: 3000 });
+  } catch (err: any) {
+    toast.add({ severity: 'error', summary: 'Failed to save', detail: err.message, life: 4000 });
+  }
 }
 </script>
 
 <template>
-  <div class="zone-form">
-    <div class="form-row">
-      <label>Name</label>
-      <input v-model="name" placeholder="Zone name" class="form-input" />
+  <div class="flex flex-col gap-3 bg-slate-50 border border-slate-200 rounded-lg p-3">
+
+    <!-- Name -->
+    <div class="flex flex-col gap-1">
+      <label class="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Name</label>
+      <InputText v-model="name" placeholder="Zone name" class="w-full" />
     </div>
 
-    <div class="form-row">
-      <label>Type label</label>
-      <div class="type-row">
-        <select v-if="zoneTypes?.length" v-model="typeLabel" class="form-input">
-          <option value="">— none —</option>
-          <option v-for="t in zoneTypes" :key="t" :value="t">{{ t }}</option>
-        </select>
-        <input v-else v-model="typeLabel" placeholder="e.g. Cluster" class="form-input" />
-      </div>
+    <!-- Type label -->
+    <div class="flex flex-col gap-1">
+      <label class="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Type label</label>
+      <Select
+        v-if="zoneTypes?.length"
+        v-model="typeLabel"
+        :options="zoneTypes"
+        showClear
+        placeholder="— none —"
+        class="w-full"
+      />
+      <InputText v-else v-model="typeLabel" placeholder="e.g. Cluster" class="w-full" />
     </div>
 
-    <div class="form-row">
-      <label>Color</label>
-      <div class="color-row">
+    <!-- Color -->
+    <div class="flex flex-col gap-1">
+      <label class="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Color</label>
+      <div class="flex items-center gap-2 flex-wrap">
         <span
           v-for="c in DEFAULT_COLORS" :key="c"
-          class="color-swatch" :style="{ background: c }"
-          :class="{ active: color === c }"
+          class="w-[18px] h-[18px] rounded cursor-pointer border-2 transition-transform hover:scale-110"
+          :style="{ background: c, borderColor: color === c ? '#0f172a' : 'transparent' }"
           @click="color = c"
         ></span>
-        <input type="color" v-model="color" class="color-picker" title="Custom color" />
+        <ColorPicker v-model="colorHex" format="hex" />
       </div>
     </div>
 
-    <div class="form-row">
-      <label>Parent state</label>
-      <select v-model="parentPcode" class="form-input">
-        <option value="">— all states —</option>
-        <option v-for="s in parentStateOptions" :key="s.pcode" :value="s.pcode">{{ s.name }}</option>
-      </select>
+    <!-- Parent state -->
+    <div class="flex flex-col gap-1">
+      <label class="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Parent state</label>
+      <Select
+        v-model="parentPcode"
+        :options="parentOptions"
+        optionValue="pcode"
+        optionLabel="name"
+        showClear
+        placeholder="— all states —"
+        class="w-full"
+      />
     </div>
 
-    <div class="form-row">
-      <label>Members</label>
-      <div class="children-type-row">
-        <label class="radio-label">
-          <input type="radio" v-model="childrenType" value="lga" /> LGAs
-        </label>
-        <label class="radio-label">
-          <input type="radio" v-model="childrenType" value="zone" /> Child zones
-        </label>
+    <!-- Members type -->
+    <div class="flex flex-col gap-1">
+      <label class="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Members</label>
+      <div class="flex gap-4">
+        <div class="flex items-center gap-2">
+          <RadioButton v-model="childrenType" inputId="ct-lga" value="lga" />
+          <label for="ct-lga" class="text-sm text-slate-600 cursor-pointer">LGAs</label>
+        </div>
+        <div class="flex items-center gap-2">
+          <RadioButton v-model="childrenType" inputId="ct-zone" value="zone" />
+          <label for="ct-zone" class="text-sm text-slate-600 cursor-pointer">Child zones</label>
+        </div>
       </div>
     </div>
 
-    <div class="member-list">
-      <div class="member-actions">
-        <button class="link-btn" @click="selectAll">All</button>
-        <button class="link-btn" @click="clearAll">None</button>
-        <span class="member-count">{{ selectedPcodes.size }} selected</span>
+    <!-- Member list -->
+    <div class="flex flex-col gap-1">
+      <div class="flex items-center gap-2">
+        <Button label="All" size="small" variant="text" @click="selectAll()" />
+        <Button label="Clear" size="small" variant="text" @click="clearAll()" />
+        <span class="text-[11px] text-slate-400 ml-auto">{{ selectedPcodes.length }} selected</span>
       </div>
-      <div class="member-scroll">
+      <div class="max-h-[150px] overflow-y-auto border border-slate-200 rounded-md bg-white">
         <label
           v-for="child in childOptions" :key="child.pcode"
-          class="member-item"
-          :class="{ checked: selectedPcodes.has(child.pcode) }"
+          class="flex items-center gap-2 px-2 py-1 text-xs text-slate-700 cursor-pointer hover:bg-slate-50 transition-colors"
+          :class="{ 'bg-blue-50': selectedPcodes.includes(child.pcode) }"
+          :for="child.pcode"
         >
-          <input type="checkbox" :checked="selectedPcodes.has(child.pcode)" @change="togglePcode(child.pcode)" />
+          <Checkbox v-model="selectedPcodes" :value="child.pcode" :inputId="child.pcode" />
           <span>{{ child.name }}</span>
         </label>
-        <div v-if="childOptions.length === 0" class="empty-members">
+        <div v-if="childOptions.length === 0" class="px-2 py-2 text-xs text-slate-400 text-center">
           No members available
         </div>
       </div>
     </div>
 
-    <div class="form-actions">
-      <button class="btn-primary" @click="submit" :disabled="!name.trim()">
-        {{ editZone ? 'Update zone' : 'Create zone' }}
-      </button>
-      <button class="btn-cancel" @click="emit('cancel')">Cancel</button>
+    <!-- Actions -->
+    <div class="flex gap-2 mt-1">
+      <Button
+        :label="isEditing ? 'Save Changes' : 'Create Zone'"
+        icon="pi pi-check"
+        class="w-full"
+        :disabled="!name.trim()"
+        @click="submit()"
+      />
+      <Button
+        label="Cancel"
+        variant="outlined"
+        severity="secondary"
+        class="w-full"
+        @click="$emit('cancel')"
+      />
     </div>
+
   </div>
 </template>
-
-<style scoped>
-.zone-form {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.form-row { display: flex; flex-direction: column; gap: 3px; }
-.form-row label { font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
-.form-input { border: 1px solid #cbd5e1; border-radius: 5px; padding: 5px 8px; font-size: 13px; color: #0f172a; background: #fff; width: 100%; box-sizing: border-box; }
-.form-input:focus { outline: none; border-color: #3b82f6; }
-
-.type-row { display: flex; gap: 6px; }
-.color-row { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
-.color-swatch {
-  width: 18px; height: 18px; border-radius: 4px; cursor: pointer;
-  border: 2px solid transparent; transition: border-color 0.1s;
-}
-.color-swatch.active { border-color: #0f172a; }
-.color-swatch:hover { transform: scale(1.15); }
-.color-picker { width: 24px; height: 24px; border: none; background: none; cursor: pointer; padding: 0; border-radius: 4px; }
-
-.children-type-row { display: flex; gap: 12px; }
-.radio-label { font-size: 13px; color: #475569; display: flex; align-items: center; gap: 4px; cursor: pointer; }
-
-.member-list { display: flex; flex-direction: column; gap: 4px; }
-.member-actions { display: flex; align-items: center; gap: 8px; }
-.link-btn { background: none; border: none; color: #3b82f6; font-size: 12px; cursor: pointer; padding: 0; }
-.link-btn:hover { text-decoration: underline; }
-.member-count { font-size: 11px; color: #94a3b8; margin-left: auto; }
-
-.member-scroll {
-  max-height: 150px;
-  overflow-y: auto;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  background: #fff;
-}
-.member-item {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 4px 8px;
-  font-size: 12px;
-  color: #334155;
-  cursor: pointer;
-  transition: background 0.08s;
-}
-.member-item:hover { background: #f1f5f9; }
-.member-item.checked { background: #eff6ff; }
-.empty-members { padding: 8px; font-size: 12px; color: #94a3b8; text-align: center; }
-
-.form-actions { display: flex; gap: 8px; margin-top: 4px; }
-.btn-primary {
-  background: #3b82f6; color: #fff; border: none; border-radius: 5px;
-  padding: 6px 14px; font-size: 13px; cursor: pointer; flex: 1;
-}
-.btn-primary:hover:not(:disabled) { background: #2563eb; }
-.btn-primary:disabled { opacity: 0.5; cursor: default; }
-.btn-cancel {
-  background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0;
-  border-radius: 5px; padding: 6px 14px; font-size: 13px; cursor: pointer;
-}
-.btn-cancel:hover { background: #e2e8f0; }
-</style>

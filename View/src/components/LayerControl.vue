@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount } from 'vue';
-import { useTileInspector, type DataControlRow } from '../composables/useTileInspector';
+import Button from 'primevue/button';
+import ToggleSwitch from 'primevue/toggleswitch';
+import { useMapLayers } from '../composables/useMapLayers';
 
-const { baseControls, boundaryControls, toggleControl } = useTileInspector();
+const { baseControls, boundaryControls, toggleControl } = useMapLayers();
 
 const expanded = ref(false);
 const controlRoot = ref<HTMLDivElement | null>(null);
@@ -18,112 +20,46 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onClickOutside
 </script>
 
 <template>
-  <div ref="controlRoot" class="layer-control">
-    <button class="layer-toggle-btn" @click="expanded = !expanded">
-      Layers
-    </button>
-    <div v-if="expanded" class="layer-panel">
-      <div class="layer-section">
-        <div class="layer-section-title">Base map data</div>
-        <div class="layer-grid">
-          <button
+  <div ref="controlRoot" class="absolute top-[50px] left-2.5 z-10">
+    <Button
+      :icon="expanded ? 'pi pi-times' : 'pi pi-sliders-h'"
+      variant="text"
+      rounded
+      class="bg-white/90 shadow"
+      @click="expanded = !expanded"
+    />
+
+    <div
+      v-if="expanded"
+      class="mt-1 bg-white rounded-lg shadow-lg border border-slate-200 p-3 min-w-[160px]"
+    >
+      <div class="mb-2.5">
+        <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Base map data</div>
+        <div class="flex flex-col gap-1.5">
+          <div
             v-for="row in baseControls"
             :key="row.id"
-            class="layer-btn"
-            :class="{ on: row.visible }"
-            @click="toggleControl(row)"
+            class="flex items-center justify-between"
           >
-            {{ row.label }}
-          </button>
+            <label class="text-xs text-slate-700">{{ row.label }}</label>
+            <ToggleSwitch v-model="row.visible" @update:modelValue="toggleControl(row)" />
+          </div>
         </div>
       </div>
-      <div class="layer-section">
-        <div class="layer-section-title">Boundary data</div>
-        <div class="layer-grid">
-          <button
+
+      <div class="pt-2.5 border-t border-slate-100">
+        <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Boundary data</div>
+        <div class="flex flex-col gap-1.5">
+          <div
             v-for="row in boundaryControls"
             :key="row.id"
-            class="layer-btn"
-            :class="{ on: row.visible }"
-            @click="toggleControl(row)"
+            class="flex items-center justify-between"
           >
-            {{ row.label }}
-          </button>
+            <label class="text-xs text-slate-700">{{ row.label }}</label>
+            <ToggleSwitch v-model="row.visible" @update:modelValue="toggleControl(row)" />
+          </div>
         </div>
       </div>
     </div>
   </div>
 </template>
-
-<style scoped>
-.layer-control {
-  position: absolute;
-  top: 50px;
-  left: 10px;
-  z-index: 10;
-}
-
-.layer-toggle-btn {
-  background: rgba(0, 0, 0, 0.8);
-  color: #e5e7eb;
-  border: 1px solid #374151;
-  border-radius: 6px;
-  padding: 6px 12px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.layer-toggle-btn:hover {
-  background: rgba(0, 0, 0, 0.9);
-  border-color: #4b5563;
-}
-
-.layer-panel {
-  margin-top: 4px;
-  background: #0f172a;
-  border: 1px solid #334155;
-  border-radius: 8px;
-  padding: 12px;
-  min-width: 240px;
-}
-
-.layer-section + .layer-section {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid #1f2937;
-}
-
-.layer-section-title {
-  font-size: 12px;
-  color: #cbd5e1;
-  font-weight: 600;
-  margin-bottom: 6px;
-}
-
-.layer-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-}
-
-.layer-btn {
-  border: 1px solid #334155;
-  border-radius: 6px;
-  padding: 6px 8px;
-  font-size: 11px;
-  background: #020617;
-  color: #e5e7eb;
-  text-align: left;
-  cursor: pointer;
-}
-
-.layer-btn.on {
-  border-color: #0ea5e9;
-  background: #082f49;
-  color: #bae6fd;
-}
-
-.layer-btn:hover {
-  border-color: #4b5563;
-}
-</style>

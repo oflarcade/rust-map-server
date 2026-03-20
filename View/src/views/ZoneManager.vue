@@ -6,6 +6,16 @@ import { TENANTS, getTenantById, type TenantConfig } from '../config/tenants';
 import { DEFAULT_MARTIN_URL, DEFAULT_PROXY_URL, normalizeBaseUrl } from '../config/urls';
 import { buildInspectorStyle, loadMartinTileMetadata } from '../map/inspectorStyle';
 import ZoneCreatorPanel from '../components/ZoneCreatorPanel.vue';
+import type { Zone } from '../types/zone';
+import {
+  fetchTerritories,
+  addTerritories,
+  removeTerritory as apiRemoveTerritory,
+  type ScopeItem,
+  type AvailableItem,
+  type TerritoriesResponse,
+} from '../api/territories';
+import { fetchBoundaryGeoJSON, fetchHierarchy } from '../api/boundaries';
 
 const router = useRouter();
 const BASE = normalizeBaseUrl(DEFAULT_PROXY_URL);
@@ -28,39 +38,11 @@ const allFeatures      = ref<any[]>([]);
 const activeFeaturePcode = ref<string | null>(null);
 
 // Territories state
-const territories      = ref<{ in_scope: ScopeItem[]; available: AvailableItem[] } | null>(null);
+const territories      = ref<TerritoriesResponse | null>(null);
 const territoriesLoading = ref(false);
 const showAvailable    = ref(false);
 const availableSearch  = ref('');
 const selectedAvailable = ref<string[]>([]);
-
-interface Zone {
-  zone_id: number;
-  zone_pcode: string;
-  zone_name: string;
-  color: string;
-  parent_pcode: string;
-  zone_type_label?: string;
-  zone_level: number;
-  children_type: 'lga' | 'zone';
-  constituent_pcodes: string[];
-  updated_by?: string;
-}
-
-interface ScopeItem {
-  pcode: string;
-  name: string;
-  adm_level: number;
-  children_count: number;
-}
-
-interface AvailableItem {
-  pcode: string;
-  name: string;
-  adm_level: number;
-  parent_pcode: string;
-  parent_name: string;
-}
 
 interface FlatTreeNode {
   pcode: string;
@@ -133,17 +115,14 @@ async function loadBoundaries() {
   setStatus('Loading boundaries…');
   try {
     const tid = selectedTenantId.value;
-    const [geojsonRes, zonesRes, hierRes] = await Promise.all([
-      fetch(`${BASE}/boundaries/geojson?t=${tid}`, { headers: tenantHeaders() }),
-      fetch(`${BASE}/admin/zones`,                  { headers: tenantHeaders() }),
-      fetch(`${BASE}/boundaries/hierarchy?t=${tid}`, { headers: tenantHeaders() }),
+    const [geojson, zonesRes, hier] = await Promise.all([
+      fetchBoundaryGeoJSON(tid),
+      fetch(`${BASE}/admin/zones`, { headers: tenantHeaders() }),
+      fetchHierarchy(tid),
     ]);
     if (myVersion !== loadVersion) return;
-    if (!geojsonRes.ok) throw new Error(`boundaries/geojson: ${geojsonRes.status}`);
-    const geojson = await geojsonRes.json();
-    if (myVersion !== loadVersion) return;
     if (zonesRes.ok) { const d = await zonesRes.json(); existingZones.value = d.zones ?? []; }
-    if (hierRes.ok) hierarchyData.value = await hierRes.json();
+    hierarchyData.value = hier;
     allFeatures.value = geojson.features;
     const lgaFeatures   = geojson.features.filter((f: any) => f.properties.feature_type === 'lga');
     const zoneFeatures  = geojson.features.filter((f: any) => f.properties.feature_type === 'zone');
@@ -171,9 +150,7 @@ async function loadBoundaries() {
 async function loadTerritories() {
   territoriesLoading.value = true;
   try {
-    const res = await fetch(`${BASE}/admin/territories`, { headers: tenantHeaders() });
-    if (res.ok) territories.value = await res.json();
-    else setStatus(`Territories load failed: ${res.status}`, 'error');
+    territories.value = await fetchTerritories(selectedTenantId.value);
   } catch (e: any) {
     setStatus(`Territories error: ${e.message}`, 'error');
   } finally {
@@ -184,13 +161,7 @@ async function loadTerritories() {
 async function addSelectedTerritories() {
   if (selectedAvailable.value.length === 0) return;
   try {
-    const res = await fetch(`${BASE}/admin/territories`, {
-      method: 'POST',
-      headers: tenantHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ pcodes: selectedAvailable.value }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error ?? res.statusText);
+    const data = await addTerritories(selectedTenantId.value, selectedAvailable.value);
     setStatus(`Added ${data.added} pcodes to scope`, 'success');
     selectedAvailable.value = [];
     showAvailable.value = false;
@@ -204,12 +175,7 @@ async function addSelectedTerritories() {
 async function removeTerritory(pcode: string, name: string) {
   if (!confirm(`Remove "${name}" (${pcode}) from this tenant's scope?\n\nThis will break any zones that use this pcode.`)) return;
   try {
-    const res = await fetch(`${BASE}/admin/territories/${encodeURIComponent(pcode)}`, {
-      method: 'DELETE',
-      headers: tenantHeaders(),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error ?? res.statusText);
+    await apiRemoveTerritory(selectedTenantId.value, pcode);
     setStatus(`Removed ${pcode} from scope`, 'success');
     await loadTerritories();
     await loadBoundaries();
@@ -362,7 +328,7 @@ async function updateZone() {
   try {
     const body: Record<string, any> = { zone_name: zoneName.value, color: zoneColor.value };
     if (zoneTypeLabel.value.trim()) body.zone_type_label = zoneTypeLabel.value.trim();
-    const res = await fetch(`${BASE}/admin/zones/${editingZone.value.zone_id}`, {
+    const res = await fetch(`${BASE}/admin/zones/${editingZone.value.id}`, {
       method: 'PUT',
       headers: tenantHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(body),
@@ -382,7 +348,7 @@ async function deleteZone() {
   if (!confirm(`Delete zone "${editingZone.value.zone_name}"?`)) return;
   setStatus('Deleting zone…');
   try {
-    const res = await fetch(`${BASE}/admin/zones/${editingZone.value.zone_id}`, {
+    const res = await fetch(`${BASE}/admin/zones/${editingZone.value.id}`, {
       method: 'DELETE', headers: tenantHeaders(),
     });
     if (!res.ok) { const d = await res.json(); throw new Error(d.error ?? res.statusText); }
@@ -540,9 +506,9 @@ onUnmounted(() => { popup?.remove(); popup = null; map?.remove(); map = null; })
         <label>Existing Areas <span class="muted">(click to edit)</span></label>
         <div class="zone-list">
           <div
-            v-for="z in existingZones" :key="z.zone_id"
+            v-for="z in existingZones" :key="z.id"
             class="zone-item"
-            :class="{ active: editingZone?.zone_id === z.zone_id }"
+            :class="{ active: editingZone?.id === z.id }"
             @click="startEdit(z)"
           >
             <span class="zone-swatch" :style="{ background: z.color ?? '#888' }"></span>

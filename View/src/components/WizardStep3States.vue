@@ -1,23 +1,31 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue';
 import { DEFAULT_PROXY_URL, normalizeBaseUrl } from '../config/urls';
+import Tree from 'primevue/tree';
+import type { TreeNode } from 'primevue/treenode';
+import InputText from 'primevue/inputtext';
+import Button from 'primevue/button';
 
-const props = defineProps<{ countryCode: string }>();
+const props = defineProps<{
+  countryCode: string;
+  selected?: string[];
+}>();
 
 const emit = defineEmits<{
   (e: 'update:selected', pcodes: string[]): void;
 }>();
 
 interface LGA { pcode: string; name: string; }
-interface State { pcode: string; name: string; children: LGA[]; }
+interface State { pcode: string; name: string; lgas: LGA[]; }
 
 const BASE = normalizeBaseUrl(DEFAULT_PROXY_URL);
 const states = ref<State[]>([]);
 const loading = ref(false);
 const error = ref('');
-const expanded = ref<Set<string>>(new Set());
-const checked = ref<Set<string>>(new Set());
 const searchQ = ref('');
+
+// PrimeVue Tree checkbox format: Record<string, { checked: boolean; partialChecked: boolean }>
+const selectionKeys = ref<Record<string, { checked: boolean; partialChecked: boolean }>>({});
 
 async function loadStates() {
   if (!props.countryCode) return;
@@ -27,8 +35,14 @@ async function loadStates() {
     const res = await fetch(`${BASE}/admin/states?country_code=${props.countryCode}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    states.value = data.states ?? [];
-    expanded.value = new Set(states.value.map((s) => s.pcode)); // expand all by default
+    // API returns `children`, map to `lgas`
+    states.value = (data.states ?? []).map((s: any) => ({
+      pcode: s.pcode,
+      name: s.name,
+      lgas: s.children ?? s.lgas ?? [],
+    }));
+    // After loading, sync selection from props
+    syncSelectionFromProps();
   } catch (e: any) {
     error.value = e.message ?? 'Failed to load states';
   } finally {
@@ -36,152 +50,134 @@ async function loadStates() {
   }
 }
 
+function syncSelectionFromProps() {
+  const selected = new Set(props.selected ?? []);
+  const keys: Record<string, { checked: boolean; partialChecked: boolean }> = {};
+  for (const state of states.value) {
+    const lgaPcodes = state.lgas.map((l) => l.pcode);
+    const checkedCount = lgaPcodes.filter((p) => selected.has(p)).length;
+    for (const lga of state.lgas) {
+      if (selected.has(lga.pcode)) {
+        keys[lga.pcode] = { checked: true, partialChecked: false };
+      }
+    }
+    if (checkedCount === lgaPcodes.length && lgaPcodes.length > 0) {
+      keys[state.pcode] = { checked: true, partialChecked: false };
+    } else if (checkedCount > 0) {
+      keys[state.pcode] = { checked: false, partialChecked: true };
+    }
+  }
+  selectionKeys.value = keys;
+}
+
 watch(() => props.countryCode, loadStates, { immediate: true });
-watch(checked, () => {
-  emit('update:selected', Array.from(checked.value));
+
+watch(() => props.selected, () => {
+  syncSelectionFromProps();
 }, { deep: true });
 
-const filteredStates = computed(() => {
+// Convert selectionKeys back to array of leaf LGA pcodes
+function onSelectionChange(keys: Record<string, { checked: boolean; partialChecked: boolean }>) {
+  selectionKeys.value = keys;
+  const allLgaPcodes = new Set(states.value.flatMap((s) => s.lgas.map((l) => l.pcode)));
+  const selected = Object.keys(keys).filter(
+    (k) => keys[k].checked && allLgaPcodes.has(k)
+  );
+  emit('update:selected', selected);
+}
+
+// Filtered tree nodes for search
+const treeNodes = computed<TreeNode[]>(() => {
   const q = searchQ.value.toLowerCase().trim();
-  if (!q) return states.value;
   return states.value
-    .map((s) => {
-      if (s.name.toLowerCase().includes(q) || s.pcode.toLowerCase().includes(q)) return s;
-      const children = s.children.filter((c) => c.name.toLowerCase().includes(q) || c.pcode.toLowerCase().includes(q));
-      if (children.length) return { ...s, children };
-      return null;
+    .map((state): TreeNode | null => {
+      const matchesState =
+        !q || state.name.toLowerCase().includes(q) || state.pcode.toLowerCase().includes(q);
+      const filteredLgas = q
+        ? state.lgas.filter(
+            (lga) =>
+              lga.name.toLowerCase().includes(q) || lga.pcode.toLowerCase().includes(q)
+          )
+        : state.lgas;
+      if (!matchesState && filteredLgas.length === 0) return null;
+      return {
+        key: state.pcode,
+        label: state.name,
+        data: state,
+        children: (matchesState ? state.lgas : filteredLgas).map(
+          (lga): TreeNode => ({
+            key: lga.pcode,
+            label: lga.name,
+            data: lga,
+            leaf: true,
+          })
+        ),
+      };
     })
-    .filter(Boolean) as State[];
+    .filter((n): n is TreeNode => n !== null);
 });
 
-function toggleExpand(pcode: string) {
-  const next = new Set(expanded.value);
-  if (next.has(pcode)) next.delete(pcode); else next.add(pcode);
-  expanded.value = next;
-}
-
-function toggleLga(pcode: string) {
-  const next = new Set(checked.value);
-  if (next.has(pcode)) next.delete(pcode); else next.add(pcode);
-  checked.value = next;
-}
-
-function toggleState(state: State) {
-  const lgaPcodes = state.children.map((c) => c.pcode);
-  const allChecked = lgaPcodes.every((p) => checked.value.has(p));
-  const next = new Set(checked.value);
-  if (allChecked) lgaPcodes.forEach((p) => next.delete(p));
-  else lgaPcodes.forEach((p) => next.add(p));
-  checked.value = next;
-}
-
-function stateCheckState(state: State): 'all' | 'none' | 'partial' {
-  const lgaPcodes = state.children.map((c) => c.pcode);
-  const count = lgaPcodes.filter((p) => checked.value.has(p)).length;
-  if (count === 0) return 'none';
-  if (count === lgaPcodes.length) return 'all';
-  return 'partial';
-}
+const selectedCount = computed(() => {
+  const allLgaPcodes = new Set(states.value.flatMap((s) => s.lgas.map((l) => l.pcode)));
+  return Object.keys(selectionKeys.value).filter(
+    (k) => selectionKeys.value[k].checked && allLgaPcodes.has(k)
+  ).length;
+});
 
 function selectAll() {
-  checked.value = new Set(states.value.flatMap((s) => s.children.map((c) => c.pcode)));
+  const keys: Record<string, { checked: boolean; partialChecked: boolean }> = {};
+  for (const state of states.value) {
+    keys[state.pcode] = { checked: true, partialChecked: false };
+    for (const lga of state.lgas) {
+      keys[lga.pcode] = { checked: true, partialChecked: false };
+    }
+  }
+  selectionKeys.value = keys;
+  const allPcodes = states.value.flatMap((s) => s.lgas.map((l) => l.pcode));
+  emit('update:selected', allPcodes);
 }
-function clearAll() { checked.value = new Set(); }
+
+function clearAll() {
+  selectionKeys.value = {};
+  emit('update:selected', []);
+}
 </script>
 
 <template>
-  <div class="w3-root">
-    <div v-if="loading" class="loading-msg">Loading {{ countryCode }} states…</div>
-    <div v-else-if="error" class="error-msg">{{ error }}</div>
+  <div class="flex flex-col gap-2 h-full">
+    <div v-if="loading" class="text-sm text-slate-500 py-3 text-center">
+      Loading {{ countryCode }} states…
+    </div>
+    <div v-else-if="error" class="text-sm text-red-600 py-3 text-center">{{ error }}</div>
     <template v-else>
-      <div class="toolbar">
-        <input v-model="searchQ" placeholder="Search states / LGAs…" class="search-input" />
-        <div class="bulk-actions">
-          <button class="link-btn" @click="selectAll">Select all</button>
-          <button class="link-btn" @click="clearAll">Clear all</button>
-          <span class="count-text">{{ checked.size }} LGAs selected</span>
+      <div class="flex flex-col gap-1.5">
+        <InputText
+          v-model="searchQ"
+          placeholder="Search states or LGAs…"
+          class="w-full !text-sm"
+        />
+        <div class="flex items-center gap-2">
+          <Button label="Select All" size="small" variant="text" @click="selectAll()" />
+          <Button label="Clear" size="small" variant="text" @click="clearAll()" />
+          <span class="ml-auto text-xs text-slate-400">{{ selectedCount }} LGAs selected</span>
         </div>
       </div>
 
-      <div class="tree-scroll">
-        <div v-for="state in filteredStates" :key="state.pcode" class="state-block">
-          <div class="state-row" @click="toggleExpand(state.pcode)">
-            <span class="expand-icon">{{ expanded.has(state.pcode) ? '▾' : '▸' }}</span>
-            <input
-              type="checkbox"
-              :checked="stateCheckState(state) === 'all'"
-              :indeterminate="stateCheckState(state) === 'partial'"
-              @click.stop="toggleState(state)"
-              class="state-checkbox"
-            />
-            <span class="state-name">{{ state.name }}</span>
-            <span class="state-pcode">{{ state.pcode }}</span>
-            <span class="state-count">{{ state.children.length }}</span>
-          </div>
-
-          <div v-if="expanded.has(state.pcode)" class="lga-list">
-            <label
-              v-for="lga in state.children"
-              :key="lga.pcode"
-              class="lga-row"
-              :class="{ checked: checked.has(lga.pcode) }"
-            >
-              <input type="checkbox" :checked="checked.has(lga.pcode)" @change="toggleLga(lga.pcode)" />
-              <span class="lga-name">{{ lga.name }}</span>
-              <span class="lga-pcode">{{ lga.pcode }}</span>
-            </label>
-          </div>
+      <div class="flex-1 overflow-y-auto border border-slate-200 rounded-lg bg-white">
+        <Tree
+          :value="treeNodes"
+          selectionMode="checkbox"
+          v-model:selectionKeys="selectionKeys"
+          @update:selectionKeys="onSelectionChange"
+          class="w-full !text-sm"
+        />
+        <div
+          v-if="treeNodes.length === 0 && !loading"
+          class="p-4 text-center text-sm text-slate-400"
+        >
+          No results
         </div>
-
-        <div v-if="filteredStates.length === 0 && !loading" class="empty-msg">No results</div>
       </div>
     </template>
   </div>
 </template>
-
-<style scoped>
-.w3-root { display: flex; flex-direction: column; gap: 8px; height: 100%; }
-.loading-msg, .error-msg { font-size: 13px; color: #64748b; padding: 12px 0; text-align: center; }
-.error-msg { color: #dc2626; }
-
-.toolbar { display: flex; flex-direction: column; gap: 6px; }
-.search-input {
-  width: 100%; box-sizing: border-box; border: 1px solid #e2e8f0; border-radius: 6px;
-  padding: 6px 10px; font-size: 13px;
-}
-.search-input:focus { outline: none; border-color: #3b82f6; }
-.bulk-actions { display: flex; align-items: center; gap: 10px; }
-.link-btn { background: none; border: none; color: #3b82f6; font-size: 12px; cursor: pointer; padding: 0; }
-.link-btn:hover { text-decoration: underline; }
-.count-text { font-size: 12px; color: #94a3b8; margin-left: auto; }
-
-.tree-scroll { flex: 1; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; }
-
-.state-block { }
-.state-row {
-  display: flex; align-items: center; gap: 7px;
-  padding: 7px 10px; cursor: pointer; background: #f8fafc;
-  border-bottom: 1px solid #e2e8f0;
-  position: sticky; top: 0; z-index: 1;
-}
-.state-row:hover { background: #f1f5f9; }
-.expand-icon { font-size: 9px; color: #94a3b8; flex-shrink: 0; }
-.state-checkbox { flex-shrink: 0; cursor: pointer; }
-.state-name { flex: 1; font-size: 13px; font-weight: 600; color: #0f172a; }
-.state-pcode { font-size: 11px; color: #94a3b8; flex-shrink: 0; }
-.state-count { font-size: 11px; color: #94a3b8; background: #e2e8f0; padding: 1px 5px; border-radius: 10px; flex-shrink: 0; }
-
-.lga-list { }
-.lga-row {
-  display: flex; align-items: center; gap: 7px;
-  padding: 4px 10px 4px 28px; cursor: pointer; border-bottom: 1px solid #f1f5f9;
-  font-size: 12px;
-}
-.lga-row:last-child { border-bottom: none; }
-.lga-row:hover { background: #f8fafc; }
-.lga-row.checked { background: #eff6ff; }
-.lga-name { flex: 1; color: #334155; }
-.lga-pcode { font-size: 10px; color: #94a3b8; flex-shrink: 0; }
-
-.empty-msg { padding: 16px; text-align: center; font-size: 13px; color: #94a3b8; }
-</style>

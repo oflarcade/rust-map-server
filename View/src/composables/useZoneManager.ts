@@ -1,23 +1,12 @@
-import { ref, watch } from 'vue';
-import { DEFAULT_PROXY_URL, normalizeBaseUrl } from '../config/urls';
+import { computed, ref, watch } from 'vue';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query';
+import { fetchZones, createZone, updateZone, deleteZone as apiDeleteZone } from '../api/zones';
+import type { Zone, ZoneCreatePayload, ZoneUpdatePayload } from '../types/zone';
 import { useTileInspector } from './useTileInspector';
 
-export interface Zone {
-  id: number;
-  zone_pcode: string;
-  zone_name: string;
-  color: string | null;
-  zone_level: number;
-  zone_type_label: string | null;
-  parent_pcode: string | null;
-  children_type: 'lga' | 'zone';
-  constituent_pcodes: string[];
-  updated_by: string | null;
-}
+export type { Zone } from '../types/zone';
 
-// Module-level state shared across callers
-const zones = ref<Zone[]>([]);
-const loadingZones = ref(false);
+// Module-level UI state shared across callers
 const editingZone = ref<Zone | null>(null);
 const creatingZone = ref(false);
 
@@ -25,49 +14,59 @@ let watcherRegistered = false;
 
 export function useZoneManager() {
   const { selectedTenantId, loadHierarchy, loadZoneOverlay } = useTileInspector();
-  const BASE = normalizeBaseUrl(DEFAULT_PROXY_URL);
+  const queryClient = useQueryClient();
 
-  async function loadZones(): Promise<void> {
-    loadingZones.value = true;
-    try {
-      const res = await fetch(`${BASE}/admin/zones`, {
-        headers: { 'X-Tenant-ID': selectedTenantId.value },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        zones.value = data.zones ?? [];
-      }
-    } catch { /* ignore */ } finally {
-      loadingZones.value = false;
-    }
+  // Zones list query — auto-fetches and re-fetches when tenant changes
+  const { data: zones, isLoading: loadingZones } = useQuery({
+    queryKey: computed(() => ['tenant', selectedTenantId.value, 'zones']),
+    queryFn: () => fetchZones(selectedTenantId.value),
+    placeholderData: [] as Zone[],
+  });
+
+  // Invalidate all queries for the current tenant (zones + hierarchy + geojson)
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: ['tenant', selectedTenantId.value] });
+
+  // Delete mutation
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => apiDeleteZone(selectedTenantId.value, id),
+    onSuccess: () => {
+      loadHierarchy();
+      loadZoneOverlay();
+      invalidate();
+    },
+  });
+
+  // Save mutation (create or update)
+  const saveMutation = useMutation({
+    mutationFn: (payload: { isEdit: boolean; id?: number; data: ZoneCreatePayload }) =>
+      payload.isEdit && payload.id != null
+        ? updateZone(selectedTenantId.value, payload.id, payload.data as ZoneUpdatePayload)
+        : createZone(selectedTenantId.value, payload.data),
+    onSuccess: () => {
+      editingZone.value = null;
+      creatingZone.value = false;
+      loadHierarchy();
+      loadZoneOverlay();
+      invalidate();
+    },
+  });
+
+  // loadZones: invalidate to force a fresh fetch (also usable as a manual refresh)
+  function loadZones(): void {
+    queryClient.invalidateQueries({ queryKey: ['tenant', selectedTenantId.value, 'zones'] });
   }
 
-  async function deleteZone(id: number): Promise<void> {
-    await fetch(`${BASE}/admin/zones/${id}`, {
-      method: 'DELETE',
-      headers: { 'X-Tenant-ID': selectedTenantId.value },
-    });
-    await loadZones();
-    loadHierarchy();
-    loadZoneOverlay();
+  function deleteZone(id: number): void {
+    deleteMutation.mutate(id);
   }
 
-  async function saveZone(payload: Record<string, unknown>): Promise<boolean> {
-    const isEdit = !!editingZone.value;
-    const url = isEdit ? `${BASE}/admin/zones/${editingZone.value!.id}` : `${BASE}/admin/zones`;
-    const method = isEdit ? 'PUT' : 'POST';
-    const res = await fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json', 'X-Tenant-ID': selectedTenantId.value },
-      body: JSON.stringify(payload),
+  function saveZone(payload: Record<string, unknown>): void {
+    saveMutation.mutate({
+      isEdit: !!editingZone.value,
+      id: editingZone.value?.id,
+      data: payload as unknown as ZoneCreatePayload,
     });
-    if (!res.ok) return false;
-    editingZone.value = null;
-    creatingZone.value = false;
-    await loadZones();
-    loadHierarchy();
-    loadZoneOverlay();
-    return true;
   }
 
   function startEdit(zone: Zone) {
@@ -85,13 +84,12 @@ export function useZoneManager() {
     creatingZone.value = false;
   }
 
+  // Watch tenant changes to reset UI state (TanStack handles re-fetch via computed queryKey)
   if (!watcherRegistered) {
     watcherRegistered = true;
     watch(selectedTenantId, () => {
-      zones.value = [];
       editingZone.value = null;
       creatingZone.value = false;
-      loadZones();
     });
   }
 

@@ -1,16 +1,24 @@
 import maplibregl from 'maplibre-gl';
+import type {
+  FilterSpecification,
+  FillLayerSpecification,
+  LineLayerSpecification,
+  SymbolLayerSpecification,
+  BackgroundLayerSpecification,
+} from 'maplibre-gl';
 import type { TenantConfig } from '../config/tenants';
 import { DEFAULT_MARTIN_URL, normalizeBaseUrl } from '../config/urls';
+import type { MartinTileMeta, MartinVectorLayer } from '../types/map';
 
-async function fetchJson<T = any>(url: string): Promise<T> {
+async function fetchJson<T = unknown>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`${res.status} ${url}`);
   return (await res.json()) as T;
 }
 
-function getSourceLayer(meta: any, preferred: string): string {
-  const layers = Array.isArray(meta?.vector_layers) ? meta.vector_layers : [];
-  const found = layers.find((l: any) => l && l.id === preferred);
+function getSourceLayer(meta: MartinTileMeta, preferred: string): string {
+  const layers: MartinVectorLayer[] = Array.isArray(meta?.vector_layers) ? meta.vector_layers : [];
+  const found = layers.find((l) => l && l.id === preferred);
   return found ? found.id : '';
 }
 
@@ -22,13 +30,15 @@ export function resolveBoundarySourceKey(tenant: TenantConfig, useHdx = false): 
 export async function loadMartinTileMetadata(
   tenant: TenantConfig,
   martinBaseUrl: string = DEFAULT_MARTIN_URL,
-): Promise<{ baseMeta: any; boundaryMeta: any; baseUrl: string; boundaryUrl: string }> {
+): Promise<{ baseMeta: MartinTileMeta; boundaryMeta: MartinTileMeta; baseUrl: string; boundaryUrl: string }> {
   const base = normalizeBaseUrl(martinBaseUrl);
   const boundarySourceKey = resolveBoundarySourceKey(tenant);
 
   const [baseMeta, boundaryMeta] = await Promise.all([
-    fetchJson<any>(`${base}/${tenant.source}`).catch(() => ({})),
-    fetchJson<any>(`${base}/${boundarySourceKey}`).catch(() => ({ vector_layers: [], bounds: null })),
+    fetchJson<MartinTileMeta>(`${base}/${tenant.source}`).catch(() => ({} as MartinTileMeta)),
+    fetchJson<MartinTileMeta>(`${base}/${boundarySourceKey}`).catch(
+      () => ({ vector_layers: [], bounds: null }) as MartinTileMeta,
+    ),
   ]);
 
   return {
@@ -40,8 +50,8 @@ export async function loadMartinTileMetadata(
 }
 
 export function buildInspectorStyle(
-  baseMeta: any,
-  boundaryMeta: any,
+  baseMeta: MartinTileMeta,
+  boundaryMeta: MartinTileMeta,
   baseTileUrl: string,
   boundaryTileUrl: string,
 ): maplibregl.StyleSpecification {
@@ -52,7 +62,7 @@ export function buildInspectorStyle(
     id: 'background',
     type: 'background',
     paint: { 'background-color': '#f5f3ee' },
-  });
+  } as BackgroundLayerSpecification);
 
   if (present('water')) {
     styleLayers.push({
@@ -61,7 +71,7 @@ export function buildInspectorStyle(
       source: 'base',
       'source-layer': 'water',
       paint: { 'fill-color': '#a0cfdf' },
-    } as any);
+    } as FillLayerSpecification);
   }
 
   if (present('landcover')) {
@@ -71,7 +81,7 @@ export function buildInspectorStyle(
       source: 'base',
       'source-layer': 'landcover',
       paint: { 'fill-color': '#d6ead1', 'fill-opacity': 0.55 },
-    } as any);
+    } as FillLayerSpecification);
   }
 
   if (present('landuse')) {
@@ -81,7 +91,7 @@ export function buildInspectorStyle(
       source: 'base',
       'source-layer': 'landuse',
       paint: { 'fill-color': '#ece9d8', 'fill-opacity': 0.45 },
-    } as any);
+    } as FillLayerSpecification);
   }
 
   if (present('transportation')) {
@@ -91,15 +101,15 @@ export function buildInspectorStyle(
       source: 'base',
       'source-layer': 'transportation',
       paint: { 'line-color': '#888', 'line-width': 1 },
-    } as any);
+    } as LineLayerSpecification);
     styleLayers.push({
       id: 'base-roads-major',
       type: 'line',
       source: 'base',
       'source-layer': 'transportation',
-      filter: ['in', 'class', 'primary', 'secondary', 'trunk', 'motorway'],
+      filter: ['in', 'class', 'primary', 'secondary', 'trunk', 'motorway'] as FilterSpecification,
       paint: { 'line-color': '#f59e0b', 'line-width': 2 },
-    } as any);
+    } as LineLayerSpecification);
   }
 
   if (present('building')) {
@@ -110,7 +120,7 @@ export function buildInspectorStyle(
       'source-layer': 'building',
       minzoom: 12,
       paint: { 'fill-color': '#d7c6a7', 'fill-opacity': 0.65 },
-    } as any);
+    } as FillLayerSpecification);
   }
 
   if (present('place')) {
@@ -128,17 +138,17 @@ export function buildInspectorStyle(
         'text-halo-color': '#fff',
         'text-halo-width': 1.2,
       },
-    } as any);
+    } as SymbolLayerSpecification);
   }
 
   const boundaryLayer =
     getSourceLayer(boundaryMeta, 'boundaries') ||
-    (Array.isArray(boundaryMeta?.vector_layers) && boundaryMeta.vector_layers[0]?.id) ||
+    (Array.isArray(boundaryMeta?.vector_layers) && boundaryMeta.vector_layers![0]?.id) ||
     '';
 
   if (boundaryLayer) {
-    const lgaFilter: any = ['has', 'adm2_name'];
-    const stateFilter: any = ['!', ['has', 'adm2_name']];
+    const lgaFilter: FilterSpecification = ['has', 'adm2_name'];
+    const stateFilter: FilterSpecification = ['!', ['has', 'adm2_name']];
 
     styleLayers.push({
       id: 'boundary-fill',
@@ -147,7 +157,7 @@ export function buildInspectorStyle(
       'source-layer': boundaryLayer,
       filter: lgaFilter,
       paint: { 'fill-color': '#60a5fa', 'fill-opacity': 0.15 },
-    } as any);
+    } as FillLayerSpecification);
 
     styleLayers.push({
       id: 'boundary-state-line',
@@ -156,7 +166,7 @@ export function buildInspectorStyle(
       'source-layer': boundaryLayer,
       filter: stateFilter,
       paint: { 'line-color': '#2563eb', 'line-width': 2 },
-    } as any);
+    } as LineLayerSpecification);
 
     styleLayers.push({
       id: 'boundary-lga-line',
@@ -165,7 +175,7 @@ export function buildInspectorStyle(
       'source-layer': boundaryLayer,
       filter: lgaFilter,
       paint: { 'line-color': '#6366f1', 'line-width': 1 },
-    } as any);
+    } as LineLayerSpecification);
 
     styleLayers.push({
       id: 'boundary-state-label',
@@ -184,7 +194,7 @@ export function buildInspectorStyle(
         'text-halo-color': '#fff',
         'text-halo-width': 1.5,
       },
-    } as any);
+    } as SymbolLayerSpecification);
 
     styleLayers.push({
       id: 'boundary-lga-label',
@@ -204,7 +214,7 @@ export function buildInspectorStyle(
         'text-halo-color': '#fff',
         'text-halo-width': 1,
       },
-    } as any);
+    } as SymbolLayerSpecification);
   }
 
   return {
@@ -227,4 +237,3 @@ export function buildInspectorStyle(
     layers: styleLayers,
   } as maplibregl.StyleSpecification;
 }
-

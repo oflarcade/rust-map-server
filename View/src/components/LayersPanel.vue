@@ -1,71 +1,63 @@
 <script setup lang="ts">
+import Button from 'primevue/button';
+import ToggleSwitch from 'primevue/toggleswitch';
 import { useTileInspector } from '../composables/useTileInspector';
+import { useMapLayers } from '../composables/useMapLayers';
 
-const { layersPanelOpen, baseControls, boundaryControls, toggleControl } = useTileInspector();
+const { layersPanelOpen } = useTileInspector();
+const { baseControls, boundaryControls, toggleControl } = useMapLayers();
 </script>
 
 <template>
   <Transition name="panel-slide">
-    <div v-if="layersPanelOpen" class="layers-panel">
-      <div class="panel-header">
-        <span class="panel-title">Layers</span>
-        <button class="close-btn" @click="layersPanelOpen = false">✕</button>
+    <div
+      v-if="layersPanelOpen"
+      class="absolute top-0 right-0 z-30 bg-white border-l border-slate-200 shadow-lg h-full w-48 flex flex-col"
+    >
+      <div class="flex items-center px-3 pt-2 pb-1 border-b border-slate-100">
+        <span class="text-sm font-bold text-slate-900 flex-1">Layers</span>
+        <Button
+          icon="pi pi-times"
+          variant="text"
+          size="small"
+          class="self-end"
+          @click="layersPanelOpen = false"
+        />
       </div>
-      <div class="panel-body">
-        <div class="group-label">Base</div>
-        <label v-for="row in baseControls" :key="row.id" class="layer-row">
-          <input type="checkbox" :checked="row.visible" @change="toggleControl(row)" />
-          <span>{{ row.label }}</span>
-        </label>
 
-        <div class="group-label" style="margin-top:8px">Boundaries</div>
-        <label v-for="row in boundaryControls" :key="row.id" class="layer-row">
-          <input type="checkbox" :checked="row.visible" @change="toggleControl(row)" />
-          <span>{{ row.label }}</span>
-        </label>
+      <div class="flex flex-col overflow-y-auto flex-1 py-1">
+        <div class="text-[10px] uppercase tracking-wider text-slate-500 px-3 mt-3 mb-1">Base</div>
+        <div
+          v-for="row in baseControls"
+          :key="row.id"
+          class="flex items-center justify-between px-3 py-1"
+        >
+          <label class="text-xs text-slate-700">{{ row.label }}</label>
+          <ToggleSwitch v-model="row.visible" @update:modelValue="toggleControl(row)" />
+        </div>
+
+        <div class="text-[10px] uppercase tracking-wider text-slate-500 px-3 mt-3 mb-1">Boundaries</div>
+        <div
+          v-for="row in boundaryControls"
+          :key="row.id"
+          class="flex items-center justify-between px-3 py-1"
+        >
+          <label class="text-xs text-slate-700">{{ row.label }}</label>
+          <ToggleSwitch v-model="row.visible" @update:modelValue="toggleControl(row)" />
+        </div>
       </div>
     </div>
   </Transition>
 </template>
 
 <style scoped>
-.layers-panel {
-  position: absolute;
-  top: 78px; /* below Country + Geo Hierarchy rows */
-  left: 130px;
-  width: 220px;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.12);
-  z-index: 10;
-  overflow: hidden;
+.panel-slide-enter-active,
+.panel-slide-leave-active {
+  transition: all 0.22s ease;
 }
-
-.panel-header {
-  display: flex; align-items: center;
-  padding: 10px 12px 6px;
-  border-bottom: 1px solid #f1f5f9;
+.panel-slide-enter-from,
+.panel-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.98);
 }
-.panel-title { font-size: 13px; font-weight: 700; color: #0f172a; flex: 1; }
-.close-btn {
-  background: none; border: none; cursor: pointer; color: #94a3b8;
-  font-size: 12px; padding: 2px 4px; border-radius: 3px;
-}
-.close-btn:hover { background: #f1f5f9; color: #475569; }
-
-.panel-body { padding: 8px 12px 12px; display: flex; flex-direction: column; gap: 4px; }
-
-.group-label {
-  font-size: 10px; font-weight: 700; color: #94a3b8;
-  text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px;
-}
-.layer-row {
-  display: flex; align-items: center; gap: 8px;
-  font-size: 12px; color: #334155; cursor: pointer; padding: 2px 0;
-}
-.layer-row:hover { color: #0f172a; }
-
-.panel-slide-enter-active, .panel-slide-leave-active { transition: all 0.22s ease; }
-.panel-slide-enter-from, .panel-slide-leave-to { opacity: 0; transform: translateY(-6px) scale(0.98); }
 </style>

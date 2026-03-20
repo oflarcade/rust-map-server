@@ -1,8 +1,17 @@
 import { ref, computed } from 'vue';
 import maplibregl from 'maplibre-gl';
+import type {
+  FillLayerSpecification,
+  LineLayerSpecification,
+  SymbolLayerSpecification,
+  BackgroundLayerSpecification,
+  FilterSpecification,
+} from 'maplibre-gl';
 import { DEFAULT_PROXY_URL, DEFAULT_MARTIN_URL, normalizeBaseUrl } from '../config/urls';
 import { useTileInspector } from './useTileInspector';
 import type { TenantConfig } from '../config/tenants';
+import type { MartinVectorLayer } from '../types/map';
+import type { BoundaryFeature } from '../types/geojson';
 
 const PALETTE = [
   '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
@@ -39,7 +48,7 @@ export function useCountryMode() {
   }
 
   function _addLayer(map: maplibregl.Map, spec: maplibregl.LayerSpecification) {
-    if (!map.getLayer(spec.id)) { map.addLayer(spec as any); addedLayerIds.push(spec.id); }
+    if (!map.getLayer(spec.id)) { map.addLayer(spec); addedLayerIds.push(spec.id); }
   }
 
   function toggleCountryTenant(id: string) {
@@ -74,7 +83,7 @@ export function useCountryMode() {
     }
 
     // 2. Solid background
-    _addLayer(map, { id: 'co-bg', type: 'background', paint: { 'background-color': '#e8e4d9' } } as any);
+    _addLayer(map, { id: 'co-bg', type: 'background', paint: { 'background-color': '#e8e4d9' } } as BackgroundLayerSpecification);
 
     // 3. All country-tenant Martin tile sources (vector, direct to Martin port)
     //    Each covers only its area; together they fill the full operated country.
@@ -95,13 +104,13 @@ export function useCountryMode() {
         minzoom: meta.minzoom ?? 0,
         maxzoom: meta.maxzoom ?? 14,
       });
-      const vl: string[] = (meta.vector_layers ?? []).map((l: any) => l.id as string);
-      if (vl.includes('water'))          _addLayer(map, { id: `co-water-${t.id}`,  type: 'fill',   source: srcId, 'source-layer': 'water',          paint: { 'fill-color': '#a0cfdf' } } as any);
-      if (vl.includes('landcover'))      _addLayer(map, { id: `co-lc-${t.id}`,     type: 'fill',   source: srcId, 'source-layer': 'landcover',       paint: { 'fill-color': '#d6ead1', 'fill-opacity': 0.6 } } as any);
-      if (vl.includes('transportation')) _addLayer(map, { id: `co-road-${t.id}`,   type: 'line',   source: srcId, 'source-layer': 'transportation',  minzoom: 7, paint: { 'line-color': '#bbb', 'line-width': 0.6 } } as any);
+      const vl: string[] = (meta.vector_layers as MartinVectorLayer[] ?? []).map((l) => l.id);
+      if (vl.includes('water'))          _addLayer(map, { id: `co-water-${t.id}`,  type: 'fill',   source: srcId, 'source-layer': 'water',          paint: { 'fill-color': '#a0cfdf' } } as FillLayerSpecification);
+      if (vl.includes('landcover'))      _addLayer(map, { id: `co-lc-${t.id}`,     type: 'fill',   source: srcId, 'source-layer': 'landcover',       paint: { 'fill-color': '#d6ead1', 'fill-opacity': 0.6 } } as FillLayerSpecification);
+      if (vl.includes('transportation')) _addLayer(map, { id: `co-road-${t.id}`,   type: 'line',   source: srcId, 'source-layer': 'transportation',  minzoom: 7, paint: { 'line-color': '#bbb', 'line-width': 0.6 } } as LineLayerSpecification);
       if (vl.includes('place'))          _addLayer(map, { id: `co-place-${t.id}`,  type: 'symbol', source: srcId, 'source-layer': 'place', minzoom: 7,
         layout: { 'text-field': ['coalesce', ['get', 'name:latin'], ['get', 'name']], 'text-size': 10 },
-        paint: { 'text-color': '#333', 'text-halo-color': '#fff', 'text-halo-width': 1 } } as any);
+        paint: { 'text-color': '#333', 'text-halo-color': '#fff', 'text-halo-width': 1 } } as SymbolLayerSpecification);
     }
 
     // 4. HDX full-country boundary vector tiles (all states + all LGAs)
@@ -117,29 +126,31 @@ export function useCountryMode() {
         maxzoom: hdxMeta.maxzoom ?? 14,
       });
       // All state outlines
+      const noAdm2: FilterSpecification = ['!', ['has', 'adm2_pcode']];
+      const hasAdm2: FilterSpecification = ['has', 'adm2_pcode'];
       _addLayer(map, {
         id: 'co-hdx-state-fill', type: 'fill', source: 'co-hdx', 'source-layer': hdxVectorLayer,
-        filter: ['!', ['has', 'adm2_pcode']],
+        filter: noAdm2,
         paint: { 'fill-color': '#94a3b8', 'fill-opacity': 0.05 },
-      } as any);
+      } as FillLayerSpecification);
       _addLayer(map, {
         id: 'co-hdx-state-line', type: 'line', source: 'co-hdx', 'source-layer': hdxVectorLayer,
-        filter: ['!', ['has', 'adm2_pcode']],
+        filter: noAdm2,
         paint: { 'line-color': '#475569', 'line-width': 1.8, 'line-opacity': 0.8 },
-      } as any);
+      } as LineLayerSpecification);
       // All LGA outlines
       _addLayer(map, {
         id: 'co-hdx-lga-line', type: 'line', source: 'co-hdx', 'source-layer': hdxVectorLayer,
-        filter: ['has', 'adm2_pcode'], minzoom: 6,
+        filter: hasAdm2, minzoom: 6,
         paint: { 'line-color': '#94a3b8', 'line-width': 0.5, 'line-opacity': 0.6 },
-      } as any);
+      } as LineLayerSpecification);
       // State name labels
       _addLayer(map, {
         id: 'co-hdx-state-label', type: 'symbol', source: 'co-hdx', 'source-layer': hdxVectorLayer,
-        filter: ['!', ['has', 'adm2_pcode']],
+        filter: noAdm2,
         layout: { 'text-field': ['coalesce', ['get', 'adm1_name'], ['get', 'name']], 'text-size': 12, 'text-max-width': 8, 'text-allow-overlap': false },
         paint: { 'text-color': '#1e3a5f', 'text-halo-color': '#fff', 'text-halo-width': 1.5 },
-      } as any);
+      } as SymbolLayerSpecification);
     }
 
     // 5. Tenant GeoJSON fills (colored operated areas) + hover popups
@@ -163,7 +174,7 @@ export function useCountryMode() {
       const tenant = countryTenants.value.find((t) => t.id === tenantId)!;
       const color  = tenantColors.value[tenantId];
 
-      const tagged = features.map((f: any) => ({
+      const tagged = features.map((f: BoundaryFeature) => ({
         ...f,
         properties: { ...f.properties, _tenantId: tenantId, _tenantName: tenant.name, _color: color },
       }));
@@ -184,11 +195,11 @@ export function useCountryMode() {
       _addLayer(map, {
         id: `co-fill-${tenantId}`, type: 'fill', source: srcId,
         paint: { 'fill-color': color, 'fill-opacity': 0.28 },
-      } as any);
+      } as FillLayerSpecification);
       _addLayer(map, {
         id: `co-outline-${tenantId}`, type: 'line', source: srcId,
         paint: { 'line-color': color, 'line-width': 1.6 },
-      } as any);
+      } as LineLayerSpecification);
 
       // Hover popup showing tenant + feature name
       map.on('mouseenter', `co-fill-${tenantId}`, () => { map.getCanvas().style.cursor = 'pointer'; });
@@ -199,7 +210,7 @@ export function useCountryMode() {
       map.on('mousemove', `co-fill-${tenantId}`, (e) => {
         const feat = e.features?.[0];
         if (!feat) return;
-        const p = feat.properties ?? {} as any;
+        const p = feat.properties ?? {};
         if (countryPopup) countryPopup.remove();
         countryPopup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, maxWidth: '220px', offset: 6 })
           .setLngLat(e.lngLat)

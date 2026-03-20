@@ -1,597 +1,264 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
-import { useTileInspector, type HierarchyState, type HierarchyLGA, type HierarchyZone, type HierarchyAdmNode, type HierarchyChild } from '../composables/useTileInspector';
+import { useTileInspector } from '../composables/useTileInspector';
+import { useBoundarySearch } from '../composables/useBoundarySearch';
+import { useMapInteraction } from '../composables/useMapInteraction';
 import { TENANTS } from '../config/tenants';
+import Select from 'primevue/select';
+import InputText from 'primevue/inputtext';
+import InputGroup from 'primevue/inputgroup';
+import Button from 'primevue/button';
+import Tree from 'primevue/tree';
+import Tag from 'primevue/tag';
+import type { TreeNode } from 'primevue/treenode';
+import type { HierarchyState, HierarchyChild, HierarchyZone, HierarchyAdmNode } from '../types/boundary';
 
 const router = useRouter();
 
 const {
   selectedTenantId,
   currentTenant,
+} = useTileInspector();
+
+const {
   boundarySearch,
   boundaryHierarchy,
   filteredHierarchy,
+} = useBoundarySearch();
+
+const {
   highlightBoundary,
   flyToHierarchyItem,
   highlight,
-} = useTileInspector();
+} = useMapInteraction();
 
 const hierarchy = filteredHierarchy;
 
-const expandedStates = ref(new Set<string>());
-const expandedZones = ref(new Set<string>());
-const activeHighlight = ref<string | null>(null);
+// ---------------------------------------------------------------------------
+// Selection state for PrimeVue Tree
+// ---------------------------------------------------------------------------
 
-function selectState(pcode: string, name: string) {
-  if (expandedStates.value.has(pcode)) {
-    expandedStates.value.delete(pcode);
-    activeHighlight.value = null;
-    highlightBoundary(null);
+const selectionKeys = ref<Record<string, boolean>>({});
+
+// ---------------------------------------------------------------------------
+// Tree node builders
+// ---------------------------------------------------------------------------
+
+function buildChildNode(child: HierarchyChild): TreeNode {
+  if ('zone_pcode' in child) {
+    // HierarchyZone
+    const zone = child as HierarchyZone;
+    return {
+      key: zone.zone_pcode,
+      label: zone.zone_name,
+      data: {
+        type: 'zone',
+        pcode: zone.zone_pcode,
+        name: zone.zone_name,
+        color: zone.color,
+        level_label: zone.zone_type_label,
+      },
+      children: zone.children ? zone.children.map(buildChildNode) : [],
+      leaf: !zone.children?.length,
+    };
   } else {
-    expandedStates.value.add(pcode);
-    activeHighlight.value = pcode;
-    highlightBoundary({ pcode, level: 'state', name });
-    const state = boundaryHierarchy.value?.states.find((s) => s.pcode === pcode);
+    // HierarchyAdmNode
+    const adm = child as HierarchyAdmNode;
+    return {
+      key: adm.pcode,
+      label: adm.name,
+      data: {
+        type: 'adm',
+        pcode: adm.pcode,
+        name: adm.name,
+        level_label: adm.level_label,
+      },
+      children: adm.children ? adm.children.map((c) => buildChildNode(c as HierarchyChild)) : [],
+      leaf: !adm.children?.length,
+    };
+  }
+}
+
+function buildStateChildren(state: HierarchyState): TreeNode[] {
+  const children: TreeNode[] = [];
+  if (state.children && state.children.length > 0) {
+    for (const child of state.children) {
+      children.push(buildChildNode(child));
+    }
+  } else {
+    for (const lga of state.lgas) {
+      children.push({
+        key: lga.pcode,
+        label: lga.name,
+        data: {
+          type: 'lga',
+          pcode: lga.pcode,
+          name: lga.name,
+          level_label: lga.level_label,
+        },
+        leaf: true,
+      });
+    }
+  }
+  return children;
+}
+
+const treeNodes = computed<TreeNode[]>(() => {
+  if (!filteredHierarchy.value) return [];
+  return filteredHierarchy.value.states.map((state) => ({
+    key: state.pcode,
+    label: state.name,
+    data: {
+      type: 'state',
+      pcode: state.pcode,
+      name: state.name,
+      level_label: state.level_label,
+    },
+    children: buildStateChildren(state),
+  }));
+});
+
+// ---------------------------------------------------------------------------
+// Node selection handlers
+// ---------------------------------------------------------------------------
+
+function onNodeSelect(node: TreeNode) {
+  const d = node.data as { type: string; pcode: string; name: string };
+  if (d.type === 'state') {
+    const state = boundaryHierarchy.value?.states.find((s) => s.pcode === d.pcode);
     if (state) flyToHierarchyItem(state);
-  }
-  expandedStates.value = new Set(expandedStates.value);
-}
-
-function selectLga(lga: HierarchyLGA, state: HierarchyState) {
-  if (activeHighlight.value === lga.pcode) {
-    activeHighlight.value = null;
-    highlightBoundary(null);
+    highlightBoundary({ pcode: d.pcode, level: 'state', name: d.name });
+  } else if (d.type === 'zone') {
+    highlightBoundary({ pcode: d.pcode, level: 'zone' });
   } else {
-    activeHighlight.value = lga.pcode;
-    highlightBoundary({ pcode: lga.pcode, level: 'lga', name: lga.name });
-    flyToHierarchyItem(state, lga);
+    // lga or adm leaf
+    const state = boundaryHierarchy.value?.states.find((s) =>
+      s.lgas.some((l) => l.pcode === d.pcode),
+    );
+    highlightBoundary({ pcode: d.pcode, level: 'lga', name: d.name });
+    if (state) {
+      const lga = state.lgas.find((l) => l.pcode === d.pcode);
+      if (lga) flyToHierarchyItem(state, lga);
+    }
   }
 }
 
-function selectZone(zone: HierarchyZone) {
-  if (activeHighlight.value === zone.zone_pcode) {
-    activeHighlight.value = null;
-    highlightBoundary(null);
-  } else {
-    activeHighlight.value = zone.zone_pcode;
-    highlightBoundary({ pcode: zone.zone_pcode, level: 'zone' });
-  }
+function onNodeUnselect(_node: TreeNode) {
+  highlightBoundary(null);
 }
 
-function toggleZone(pcode: string) {
-  if (expandedZones.value.has(pcode)) {
-    expandedZones.value.delete(pcode);
-  } else {
-    expandedZones.value.add(pcode);
-  }
-  expandedZones.value = new Set(expandedZones.value);
-}
-
-function isZoneExpanded(pcode: string): boolean {
-  return expandedZones.value.has(pcode);
-}
-
-function selectLgaLeaf(pcode: string, name: string) {
-  activeHighlight.value = pcode;
-  highlightBoundary({ pcode, level: 'lga', name });
-}
-
-function isExpanded(pcode: string): boolean {
-  return expandedStates.value.has(pcode);
-}
+// ---------------------------------------------------------------------------
+// Highlight helper (delegates to util via useMapInteraction)
+// ---------------------------------------------------------------------------
 
 function highlightPcode(pcode: string): string {
   return highlight(pcode, boundarySearch.value);
 }
-
-watch(boundarySearch, (q) => {
-  if (!q || !filteredHierarchy.value) {
-    expandedStates.value = new Set();
-    return;
-  }
-  const query = q.toLowerCase();
-  const toExpand = new Set<string>();
-  for (const state of filteredHierarchy.value.states) {
-    const hasMatchingLga = state.lgas.some(
-      (lga) =>
-        lga.name.toLowerCase().includes(query) ||
-        lga.pcode.toLowerCase().includes(query),
-    );
-    if (
-      hasMatchingLga ||
-      state.name.toLowerCase().includes(query) ||
-      state.pcode.toLowerCase().includes(query)
-    ) {
-      toExpand.add(state.pcode);
-    }
-  }
-  expandedStates.value = toExpand;
-});
 </script>
 
 <template>
-  <aside class="boundary-explorer">
+  <aside class="bg-slate-50 text-slate-800 overflow-y-auto p-3.5 border-r border-slate-200 h-full max-[800px]:border-r-0 max-[800px]:border-b max-[800px]:border-slate-200 max-[800px]:max-h-[40vh]">
     <!-- Tenant selector -->
-    <div class="tenant-section">
-      <div class="tenant-label">Tenant</div>
-      <select v-model="selectedTenantId" class="tenant-select">
-        <option v-for="t in TENANTS" :key="t.id" :value="t.id">
-          {{ t.id }} — {{ t.name }}
-        </option>
-      </select>
-      <div class="tenant-name">{{ currentTenant.name }}</div>
-      <button class="nav-btn" @click="router.push('/admin/zones')">
-        Tenant Administrative Manager →
-      </button>
-      <button class="nav-btn nav-btn-secondary" @click="router.push('/country/' + currentTenant.countryCode)">
-        View All {{ currentTenant.countryCode }} Tenants →
-      </button>
+    <div class="pb-3 border-b border-slate-200 mb-3">
+      <div class="text-[10px] uppercase tracking-widest text-slate-500 mb-1.5">Tenant</div>
+      <Select
+        v-model="selectedTenantId"
+        :options="TENANTS"
+        optionValue="id"
+        :optionLabel="(t: typeof TENANTS[number]) => `${t.id} — ${t.name}`"
+        class="w-full !text-sm"
+      />
+      <div class="mt-1 text-xs text-sky-700 font-semibold">{{ currentTenant.name }}</div>
+      <Button
+        label="Tenant Administrative Manager"
+        icon="pi pi-arrow-right"
+        iconPos="right"
+        class="w-full mt-2 !text-xs"
+        size="small"
+        @click="router.push('/admin/zones')"
+      />
+      <Button
+        :label="`View All ${currentTenant.countryCode} Tenants`"
+        icon="pi pi-arrow-right"
+        iconPos="right"
+        variant="outlined"
+        class="w-full mt-1.5 !text-xs"
+        size="small"
+        @click="router.push('/country/' + currentTenant.countryCode)"
+      />
     </div>
 
     <!-- Search -->
-    <section class="section">
-      <div class="search-wrap">
-        <input
+    <section class="mt-3 pt-2.5 border-t border-slate-200">
+      <InputGroup>
+        <InputText
           v-model="boundarySearch"
-          class="input"
-          placeholder="Search by name or pcode..."
+          placeholder="Search by name or pcode…"
+          class="w-full !text-sm"
         />
-        <button
+        <Button
           v-if="boundarySearch"
-          class="search-clear"
+          icon="pi pi-times"
+          variant="outlined"
+          size="small"
           @click="boundarySearch = ''"
-        >
-          ×
-        </button>
-      </div>
-      <div v-if="boundarySearch && hierarchy" class="search-counts">
-        {{ hierarchy.states.length }}
-        state{{ hierarchy.states.length !== 1 ? 's' : '' }},
+        />
+      </InputGroup>
+      <p v-if="boundarySearch && hierarchy" class="text-[11px] text-slate-400 mt-1.5">
+        {{ hierarchy.states.length }} state{{ hierarchy.states.length !== 1 ? 's' : '' }},
         {{ hierarchy.states.reduce((n, s) => n + s.lgas.length, 0) }}
         LGA{{ hierarchy.states.reduce((n, s) => n + s.lgas.length, 0) !== 1 ? 's' : '' }}
-      </div>
+      </p>
     </section>
 
     <!-- Hierarchy Tree -->
-    <section v-if="hierarchy" class="section">
-      <div class="subhead">Boundary Hierarchy</div>
-      <div class="hierarchy-tree">
-        <div class="tree-country">
-          <span
-            class="tree-label"
-            v-html="
-              highlight(hierarchy.name, boundarySearch) +
-              ' (' +
-              highlightPcode(hierarchy.pcode) +
-              ')'
-            "
-          ></span>
-          <span class="tree-meta">
-            {{ hierarchy.state_count ?? hierarchy.states.length }} states
-          </span>
-        </div>
-
-        <div
-          v-for="state in hierarchy.states"
-          :key="state.pcode"
-          class="tree-state-group"
-        >
-          <button
-            class="tree-state"
-            :class="{ active: activeHighlight === state.pcode }"
-            :title="`${state.name} (${state.pcode})`"
-            @click="selectState(state.pcode, state.name)"
-          >
-            <span class="tree-arrow">
-              {{ isExpanded(state.pcode) ? '▾' : '▸' }}
-            </span>
-            <span class="tree-label">
-              <span v-if="state.level_label" class="level-tag">{{ state.level_label }}</span>
-              <span v-html="highlight(state.name, boundarySearch) + ' (' + highlightPcode(state.pcode) + ')'"></span>
-            </span>
-          </button>
-          <!-- Flat lgas list: only shown when children tree doesn't cover this level -->
-          <!-- Hidden for countries like Rwanda where state.children has adm feature nodes -->
-          <div v-if="isExpanded(state.pcode) && state.lgas.length > 0 && !(state.children?.length && !(state.children[0] as HierarchyZone).zone_pcode)" class="tree-lgas">
-            <button
-              v-for="lga in state.lgas"
-              :key="lga.pcode"
-              class="tree-lga"
-              :class="{ active: activeHighlight === lga.pcode }"
-              :title="`${lga.name} (${lga.pcode})`"
-              @click="selectLga(lga, state)"
-            >
-              <span class="tree-label">
-                <span v-if="lga.level_label" class="level-tag">{{ lga.level_label }}</span>
-                <span v-html="highlight(lga.name, boundarySearch) + ' (' + highlightPcode(lga.pcode) + ')'"></span>
-              </span>
-            </button>
-          </div>
-          <div v-if="isExpanded(state.pcode) && state.children && state.children.length > 0" class="tree-zones">
-            <div v-for="z1 in state.children" :key="(z1 as HierarchyZone).zone_pcode ?? (z1 as HierarchyAdmNode).pcode" class="tree-zone-group">
-              <!-- Adm feature (e.g. Rwanda District) -->
-              <template v-if="!(z1 as HierarchyZone).is_zone && !(z1 as HierarchyZone).zone_pcode">
-                <button
-                  class="tree-zone tree-zone-l1"
-                  :class="{ active: activeHighlight === (z1 as HierarchyAdmNode).pcode }"
-                  @click="(z1 as HierarchyAdmNode).children?.length ? toggleZone((z1 as HierarchyAdmNode).pcode) : null; selectLgaLeaf((z1 as HierarchyAdmNode).pcode, (z1 as HierarchyAdmNode).name)"
-                >
-                  <span class="zone-arrow">{{ (z1 as HierarchyAdmNode).children?.length ? (isZoneExpanded((z1 as HierarchyAdmNode).pcode) ? '▾' : '▸') : '·' }}</span>
-                  <span class="tree-label">
-                    <span v-if="(z1 as HierarchyAdmNode).level_label" class="level-tag">{{ (z1 as HierarchyAdmNode).level_label }}</span>
-                    <span v-html="highlight((z1 as HierarchyAdmNode).name, boundarySearch)"></span>
-                  </span>
-                </button>
-                <div v-if="isZoneExpanded((z1 as HierarchyAdmNode).pcode) && (z1 as HierarchyAdmNode).children?.length" class="tree-zone-children">
-                  <div v-for="z2 in (z1 as HierarchyAdmNode).children" :key="z2.pcode" class="tree-zone-group">
-                    <button
-                      class="tree-zone tree-zone-l2"
-                      :class="{ active: activeHighlight === z2.pcode }"
-                      @click="z2.children?.length ? toggleZone(z2.pcode) : null; selectLgaLeaf(z2.pcode, z2.name)"
-                    >
-                      <span class="zone-arrow">{{ z2.children?.length ? (isZoneExpanded(z2.pcode) ? '▾' : '▸') : '·' }}</span>
-                      <span class="tree-label">
-                        <span v-if="z2.level_label" class="level-tag">{{ z2.level_label }}</span>
-                        <span v-html="highlight(z2.name, boundarySearch)"></span>
-                      </span>
-                    </button>
-                    <div v-if="isZoneExpanded(z2.pcode) && z2.children?.length" class="tree-zone-children">
-                      <button
-                        v-for="z3 in z2.children"
-                        :key="z3.pcode"
-                        class="tree-zone tree-zone-l3"
-                        :class="{ active: activeHighlight === z3.pcode }"
-                        @click="selectLgaLeaf(z3.pcode, z3.name)"
-                      >
-                        <span class="zone-arrow">·</span>
-                        <span class="tree-label">
-                          <span v-if="z3.level_label" class="level-tag">{{ z3.level_label }}</span>
-                          <span v-html="highlight(z3.name, boundarySearch)"></span>
-                        </span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </template>
-              <!-- Zone node (e.g. Jigawa Senatorial/Emirate/FC) -->
-              <template v-else>
-                <button
-                  class="tree-zone tree-zone-l1"
-                  :class="{ active: activeHighlight === (z1 as HierarchyZone).zone_pcode }"
-                  :title="`${(z1 as HierarchyZone).zone_name} (${(z1 as HierarchyZone).zone_pcode})`"
-                  @click="toggleZone((z1 as HierarchyZone).zone_pcode); selectZone(z1 as HierarchyZone)"
-                >
-                  <span class="zone-arrow">{{ isZoneExpanded((z1 as HierarchyZone).zone_pcode) ? '▾' : '▸' }}</span>
-                  <span class="zone-dot" :style="{ background: (z1 as HierarchyZone).color ?? '#10b981' }"></span>
-                  <span class="tree-label">
-                    <span v-if="(z1 as HierarchyZone).zone_type_label" class="level-tag">{{ (z1 as HierarchyZone).zone_type_label }}</span>
-                    <span v-html="highlight((z1 as HierarchyZone).zone_name, boundarySearch)"></span>
-                  </span>
-                </button>
-                <!-- Level 2 zones -->
-                <div v-if="isZoneExpanded((z1 as HierarchyZone).zone_pcode) && (z1 as HierarchyZone).children?.length" class="tree-zone-children">
-                  <div v-for="z2 in (z1 as HierarchyZone).children as HierarchyZone[]" :key="z2.zone_pcode" class="tree-zone-group">
-                    <button
-                      class="tree-zone tree-zone-l2"
-                      :class="{ active: activeHighlight === z2.zone_pcode }"
-                      :title="`${z2.zone_name} (${z2.zone_pcode})`"
-                      @click="toggleZone(z2.zone_pcode); selectZone(z2)"
-                    >
-                      <span class="zone-arrow">{{ isZoneExpanded(z2.zone_pcode) ? '▾' : '▸' }}</span>
-                      <span class="zone-dot" :style="{ background: z2.color ?? '#f59e0b' }"></span>
-                      <span class="tree-label">
-                        <span v-if="z2.zone_type_label" class="level-tag">{{ z2.zone_type_label }}</span>
-                        <span v-html="highlight(z2.zone_name, boundarySearch)"></span>
-                      </span>
-                    </button>
-                    <!-- Level 3 zones -->
-                    <div v-if="isZoneExpanded(z2.zone_pcode) && z2.children?.length" class="tree-zone-children">
-                      <div v-for="z3 in z2.children as HierarchyZone[]" :key="z3.zone_pcode" class="tree-zone-group">
-                        <button
-                          class="tree-zone tree-zone-l3"
-                          :class="{ active: activeHighlight === z3.zone_pcode }"
-                          :title="`${z3.zone_name} (${z3.zone_pcode})`"
-                          @click="toggleZone(z3.zone_pcode); selectZone(z3)"
-                        >
-                          <span class="zone-arrow">{{ z3.children?.length ? (isZoneExpanded(z3.zone_pcode) ? '▾' : '▸') : '·' }}</span>
-                          <span class="zone-dot" :style="{ background: z3.color ?? '#3b82f6' }"></span>
-                          <span class="tree-label">
-                            <span v-if="z3.zone_type_label" class="level-tag">{{ z3.zone_type_label }}</span>
-                            <span v-html="highlight(z3.zone_name, boundarySearch)"></span>
-                          </span>
-                        </button>
-                        <!-- Level 4: LGAs under FC — expandable if wards exist -->
-                        <div v-if="isZoneExpanded(z3.zone_pcode) && z3.children?.length" class="tree-zone-children">
-                          <div v-for="lga in z3.children as HierarchyAdmNode[]" :key="lga.pcode" class="tree-zone-group">
-                            <button
-                              class="tree-zone tree-zone-l4"
-                              :class="{ active: activeHighlight === lga.pcode }"
-                              :title="`${lga.name} (${lga.pcode})`"
-                              @click="lga.children?.length ? toggleZone(lga.pcode) : null; selectLgaLeaf(lga.pcode, lga.name)"
-                            >
-                              <span class="zone-arrow">{{ lga.children?.length ? (isZoneExpanded(lga.pcode) ? '▾' : '▸') : '·' }}</span>
-                              <span class="tree-label">
-                                <span class="level-tag">{{ lga.level_label || 'LGA' }}</span>
-                                <span v-html="highlight(lga.name, boundarySearch)"></span>
-                              </span>
-                            </button>
-                            <!-- Level 5: Wards -->
-                            <div v-if="isZoneExpanded(lga.pcode) && lga.children?.length" class="tree-zone-children">
-                              <button
-                                v-for="ward in lga.children"
-                                :key="ward.pcode"
-                                class="tree-zone tree-zone-l5"
-                                :class="{ active: activeHighlight === ward.pcode }"
-                                @click="selectLgaLeaf(ward.pcode, ward.name)"
-                              >
-                                <span class="zone-arrow">·</span>
-                                <span class="tree-label">
-                                  <span class="level-tag">{{ ward.level_label || 'Ward' }}</span>
-                                  <span v-html="highlight(ward.name, boundarySearch)"></span>
-                                </span>
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </template>
-            </div>
-          </div>
-        </div>
+    <section v-if="hierarchy" class="mt-3 pt-2.5 border-t border-slate-200">
+      <div class="text-xs font-semibold text-slate-700 mb-1.5">Boundary Hierarchy</div>
+      <div class="flex justify-between items-center py-1 border-b border-slate-200 mb-1">
+        <span
+          class="font-semibold text-sky-700 text-xs"
+          v-html="highlight(hierarchy.name, boundarySearch) + ' (' + highlightPcode(hierarchy.pcode) + ')'"
+        ></span>
+        <span class="text-[10px] text-slate-400">
+          {{ hierarchy.state_count ?? hierarchy.states.length }} states
+        </span>
       </div>
+      <Tree
+        :value="treeNodes"
+        selectionMode="single"
+        v-model:selectionKeys="selectionKeys"
+        @node-select="onNodeSelect"
+        @node-unselect="onNodeUnselect"
+        class="w-full !border-0 !p-0 !text-xs"
+        :pt="{ root: { class: 'border border-slate-200 rounded-md p-2' } }"
+      >
+        <template #default="{ node }">
+          <span class="flex items-center gap-1 text-xs">
+            <span
+              v-if="node.data.color"
+              class="inline-block w-2 h-2 rounded-full flex-shrink-0"
+              :style="{ background: node.data.color }"
+            ></span>
+            <Tag
+              v-if="node.data.level_label"
+              severity="secondary"
+              class="!text-[9px] !py-0 !px-1 flex-shrink-0"
+            >{{ node.data.level_label }}</Tag>
+            <span v-html="highlight(node.data.name, boundarySearch)"></span>
+            <span class="text-slate-400 text-[10px]">({{ node.data.pcode }})</span>
+          </span>
+        </template>
+      </Tree>
     </section>
-
   </aside>
 </template>
 
 <style scoped>
-.boundary-explorer {
-  background: #f8fafc;
-  color: #1e293b;
-  overflow-y: auto;
-  padding: 14px;
-  border-right: 1px solid #e2e8f0;
-  height: 100%;
-}
-
-.section {
-  margin-top: 12px;
-  padding-top: 10px;
-  border-top: 1px solid #e2e8f0;
-}
-
-.section:first-child {
-  margin-top: 0;
-  padding-top: 0;
-  border-top: none;
-}
-
-.subhead {
-  font-size: 13px;
-  margin-bottom: 6px;
-  color: #334155;
-  font-weight: 600;
-}
-
-.input {
-  width: 100%;
-  background: #ffffff;
-  color: #1e293b;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  padding: 8px;
-  font-size: 13px;
-}
-
-.search-wrap {
-  position: relative;
-}
-
-.search-wrap .input {
-  padding-right: 28px;
-}
-
-.search-clear {
-  position: absolute;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
-  background: none;
-  border: none;
-  color: #94a3b8;
-  cursor: pointer;
-  font-size: 16px;
-  line-height: 1;
-  padding: 0;
-}
-
-.search-clear:hover {
-  color: #1e293b;
-}
-
-.search-counts {
-  font-size: 11px;
-  color: #94a3b8;
-  margin-top: 6px;
-}
-
-.hierarchy-tree {
-  overflow-y: auto;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  padding: 8px;
-  font-size: 12px;
-}
-
-.tree-country {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 4px 0;
-  border-bottom: 1px solid #e2e8f0;
-  margin-bottom: 4px;
-}
-
-.tree-country .tree-label {
-  font-weight: 600;
-  color: #0369a1;
-}
-
-.tree-meta {
-  font-size: 10px;
-  color: #94a3b8;
-}
-
-.tree-state-group {
-  margin-left: 4px;
-}
-
-.tree-state {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  width: 100%;
-  padding: 3px 0;
-  background: none;
-  border: none;
-  color: #334155;
-  cursor: pointer;
-  font-size: 12px;
-  text-align: left;
-}
-
-.tree-state:hover {
-  color: #2563eb;
-}
-
-.tree-state.active {
-  color: #1d4ed8;
-  font-weight: 600;
-}
-
-.tree-arrow {
-  width: 12px;
-  flex-shrink: 0;
-  color: #94a3b8;
-  font-size: 10px;
-}
-
-.tree-lgas {
-  margin-left: 20px;
-}
-
-.tree-lga {
-  display: block;
-  width: 100%;
-  padding: 2px 0;
-  background: none;
-  border: none;
-  color: #64748b;
-  cursor: pointer;
-  font-size: 11px;
-  text-align: left;
-}
-
-.tree-lga:hover {
-  color: #2563eb;
-}
-
-.tree-lga.active {
-  color: #1d4ed8;
-  font-weight: 600;
-}
-
-.tree-label :deep(mark) {
+:deep(mark) {
   background: #bfdbfe;
   color: #1e3a5f;
   border-radius: 2px;
   padding: 0 1px;
-}
-
-.tree-zones { margin-top: 4px; margin-left: 12px; }
-.tree-zones-label { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
-.tree-zone-group { display: flex; flex-direction: column; }
-.tree-zone-children { margin-left: 14px; }
-.tree-zone { display: flex; align-items: center; gap: 4px; width: 100%; text-align: left; background: none; border: none; color: #4f46e5; cursor: pointer; padding: 3px 4px; border-radius: 4px; font-size: 11px; }
-.tree-zone:hover { background: #eff6ff; }
-.tree-zone.active { background: #dbeafe; }
-.tree-zone-l1 { color: #065f46; font-weight: 500; }
-.tree-zone-l2 { color: #92400e; }
-.tree-zone-l3 { color: #1e40af; }
-.tree-zone-l4 { color: #475569; font-size: 10px; }
-.tree-zone-l5 { color: #6b7280; font-size: 10px; }
-.level-tag { font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; color: #475569; background: #e2e8f0; border-radius: 3px; padding: 0 4px; margin-right: 4px; flex-shrink: 0; white-space: nowrap; }
-.zone-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
-.zone-arrow { width: 10px; flex-shrink: 0; color: #94a3b8; font-size: 9px; text-align: center; }
-
-.tenant-section {
-  padding-bottom: 12px;
-  border-bottom: 1px solid #e2e8f0;
-  margin-bottom: 12px;
-}
-
-.tenant-label {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #64748b;
-  margin-bottom: 6px;
-}
-
-.tenant-select {
-  width: 100%;
-  background: #ffffff;
-  color: #1e293b;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  padding: 6px 8px;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.tenant-name {
-  margin-top: 5px;
-  font-size: 11px;
-  color: #0369a1;
-  font-weight: 600;
-}
-
-.nav-btn {
-  margin-top: 8px;
-  width: 100%;
-  background: #1e40af;
-  color: #ffffff;
-  border: 1px solid #1e40af;
-  border-radius: 6px;
-  padding: 6px 10px;
-  font-size: 12px;
-  cursor: pointer;
-  text-align: center;
-}
-
-.nav-btn:hover {
-  background: #1d4ed8;
-}
-
-.nav-btn-secondary {
-  background: #f1f5f9;
-  color: #334155;
-  border: 1px solid #e2e8f0;
-}
-
-.nav-btn-secondary:hover {
-  background: #e2e8f0;
-}
-
-@media (max-width: 800px) {
-  .boundary-explorer {
-    border-right: 0;
-    border-bottom: 1px solid #e2e8f0;
-    max-height: 40vh;
-  }
 }
 </style>
