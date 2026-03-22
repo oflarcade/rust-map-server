@@ -1,10 +1,8 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
 import AppView from './views/AppView.vue';
-import CountryOverview from './views/CountryOverview.vue';
 
 const routes: RouteRecordRaw[] = [
   { path: '/', component: AppView },
-  { path: '/country/:countryCode', component: CountryOverview },
 ];
 
 const router = createRouter({

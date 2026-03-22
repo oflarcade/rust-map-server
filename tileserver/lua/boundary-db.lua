@@ -6,6 +6,46 @@ local pg = require("pg-pool")
 
 local M = {}
 
+-- Canonical adm level type names merged into GET .../level-labels per country_code,
+-- unioned with DISTINCT adm_features.level_label (so operators see INEC types before import).
+local CANONICAL_LEVEL_LABELS = {
+    NG = {
+        "Emirate",
+        "Federal Constituency",
+        "Local Government Area",
+        "Senatorial District",
+        "Ward",
+    },
+    KE = {
+        "Sub-County",
+        "Ward",
+    },
+    UG = {
+        "County",
+        "District",
+        "Parish",
+        "Sub-County",
+    },
+    RW = {
+        "Cell",
+        "District",
+        "Sector",
+        "Village",
+    },
+    LR = {
+        "Clan",
+        "District",
+    },
+    CF = {
+        "Commune",
+        "Sous-préfecture",
+    },
+    IN = {
+        "District",
+        "Sub-District",
+    },
+}
+
 -- ---------------------------------------------------------------------------
 -- get_geojson(tenant_id)
 -- Returns a list of GeoJSON feature rows for the tenant.
@@ -440,20 +480,68 @@ end
 
 -- ---------------------------------------------------------------------------
 -- get_hdx_level_labels(tenant_id)
--- Distinct adm_features.level_label values for the tenant's country (HDX / import
--- terminology), for adm_level >= 3 — e.g. "Senatorial District", "Ward".
+-- Distinct adm_features.level_label for the tenant's country (from `tenants.country_code`).
+-- Includes adm_level >= 2 so INEC/HDX types at adm3–5 (Senatorial District, Federal
+-- Constituency, Emirate, Ward, …) all appear, not only adm3. Still per-tenant via
+-- country row (Kenya tenant → KE labels, Nigeria → NG).
 -- ---------------------------------------------------------------------------
 function M.get_hdx_level_labels(tenant_id)
     local sql = [[
         SELECT DISTINCT af.level_label
         FROM adm_features af
         INNER JOIN tenants t ON t.country_code = af.country_code AND t.tenant_id = $1
-        WHERE af.adm_level >= 3
+        WHERE af.adm_level >= 2
           AND af.level_label IS NOT NULL
           AND BTRIM(af.level_label) <> ''
         ORDER BY af.level_label
     ]]
     return pg.exec(sql, {tenant_id})
+end
+
+-- ---------------------------------------------------------------------------
+-- get_level_labels_for_tenant(tenant_id)
+-- Union of DISTINCT DB labels for the tenant's country with CANONICAL_LEVEL_LABELS.
+-- Returns an alphabetically sorted array of strings, or nil, err on DB failure.
+-- ---------------------------------------------------------------------------
+function M.get_level_labels_for_tenant(tenant_id)
+    local rows, err = M.get_hdx_level_labels(tenant_id)
+    if err then return nil, err end
+
+    local seen = {}
+    for _, r in ipairs(rows or {}) do
+        local lbl = r.level_label
+        if lbl and lbl ~= ngx.null then
+            local t = (lbl:gsub("^%s+", ""):gsub("%s+$", ""))
+            if t ~= "" then
+                seen[t] = true
+            end
+        end
+    end
+
+    local trows, err2 = pg.exec([[
+        SELECT UPPER(TRIM(BOTH FROM country_code::text)) AS cc
+        FROM tenants
+        WHERE tenant_id = $1
+        LIMIT 1
+    ]], {tenant_id})
+    if err2 then return nil, err2 end
+
+    local cc = trows and trows[1] and trows[1].cc
+    if cc and cc ~= ngx.null and cc ~= "" then
+        local extras = CANONICAL_LEVEL_LABELS[cc]
+        if extras then
+            for _, lbl in ipairs(extras) do
+                seen[lbl] = true
+            end
+        end
+    end
+
+    local out = {}
+    for lbl, _ in pairs(seen) do
+        table.insert(out, lbl)
+    end
+    table.sort(out)
+    return out, nil
 end
 
 -- ---------------------------------------------------------------------------
@@ -504,6 +592,38 @@ function M.get_geo_node_chain(node_id)
         ORDER BY level_order ASC
     ]]
     return pg.exec(sql, {node_id})
+end
+
+-- ---------------------------------------------------------------------------
+-- tenant_cache helpers  (persistent L2 cache in Postgres)
+-- ---------------------------------------------------------------------------
+
+-- Returns the cached payload string, or nil if not found / on error.
+function M.get_tenant_cache(tenant_id, key)
+    local rows, err = pg.exec(
+        "SELECT payload FROM tenant_cache WHERE tenant_id = $1 AND cache_key = $2",
+        {tenant_id, key}
+    )
+    if err or not rows or #rows == 0 then return nil end
+    return rows[1].payload
+end
+
+-- Upserts a payload into tenant_cache. Non-fatal: errors are logged, not raised.
+function M.set_tenant_cache(tenant_id, key, payload)
+    local _, err = pg.exec([[
+        INSERT INTO tenant_cache (tenant_id, cache_key, payload, updated_at)
+        VALUES ($1, $2, $3, now())
+        ON CONFLICT (tenant_id, cache_key)
+        DO UPDATE SET payload = EXCLUDED.payload, updated_at = now()
+    ]], {tenant_id, key, payload})
+    if err then
+        ngx.log(ngx.WARN, "tenant_cache:set failed t=" .. tenant_id .. " k=" .. key .. ": " .. err)
+    end
+end
+
+-- Deletes all cache entries for a tenant (call on any admin write).
+function M.delete_tenant_cache(tenant_id)
+    pg.exec("DELETE FROM tenant_cache WHERE tenant_id = $1", {tenant_id})
 end
 
 return M

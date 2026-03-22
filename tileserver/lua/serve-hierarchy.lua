@@ -11,20 +11,30 @@ local is_raw    = (ngx.var.arg_raw == "1")
 
 local cache_suffix = is_raw and ":raw" or ""
 local cache_key    = "h:" .. tenant_id .. cache_suffix
+local tc_key       = is_raw and "hierarchy_raw" or "hierarchy"
 
 local hierarchy_cache = ngx.shared.hierarchy_cache
 
--- L1 cache check
+local function send_cached(body, x_cache)
+    ngx.header["Content-Type"]  = "application/json"
+    ngx.header["Cache-Control"] = "public, max-age=86400"
+    ngx.header["Vary"]          = "X-Tenant-ID"
+    ngx.header["X-Cache"]       = x_cache
+    ngx.print(body)
+end
+
+-- L1: ngx.shared (in-memory, clears on restart)
 if hierarchy_cache then
     local cached = hierarchy_cache:get(cache_key)
-    if cached then
-        ngx.header["Content-Type"]  = "application/json"
-        ngx.header["Cache-Control"] = "public, max-age=86400"
-        ngx.header["Vary"]          = "X-Tenant-ID"
-        ngx.header["X-Cache"]       = "HIT"
-        ngx.print(cached)
-        return
-    end
+    if cached then send_cached(cached, "HIT"); return end
+end
+
+-- L2: tenant_cache in Postgres (persistent across restarts)
+local l2 = db.get_tenant_cache(tenant_id, tc_key)
+if l2 then
+    if hierarchy_cache then hierarchy_cache:set(cache_key, l2, 86400) end
+    send_cached(l2, "L2-HIT")
+    return
 end
 
 -- Fetch adm_features (used by both raw and main branches)
@@ -115,14 +125,18 @@ if is_raw then
     for _, s in ipairs(states_list) do
         local lgas = {}
         for _, l in ipairs(adm2_by_parent[s.pcode] or {}) do
-            table.insert(lgas, {
+            local lga_entry = {
                 pcode       = l.pcode,
                 name        = l.name,
                 level_label = l.level_label,
                 area_sqkm   = tonumber(l.area_sqkm),
                 center_lat  = tonumber(l.center_lat),
                 center_lon  = tonumber(l.center_lon),
-            })
+            }
+            -- Attach adm3+ children (e.g. Sectors under Districts for Rwanda)
+            local sub = build_raw_children(l.pcode, 2)
+            if sub and #sub > 0 then lga_entry.children = sub end
+            table.insert(lgas, lga_entry)
         end
         local state_entry = {
             pcode      = s.pcode,
@@ -148,11 +162,8 @@ if is_raw then
 
     local body = cjson.encode(response)
     if hierarchy_cache then hierarchy_cache:set(cache_key, body, 86400) end
-    ngx.header["Content-Type"]  = "application/json"
-    ngx.header["Cache-Control"] = "public, max-age=86400"
-    ngx.header["Vary"]          = "X-Tenant-ID"
-    ngx.header["X-Cache"]       = "MISS"
-    ngx.print(body)
+    db.set_tenant_cache(tenant_id, tc_key, body)
+    send_cached(body, "MISS")
     return
 end
 
@@ -250,11 +261,14 @@ build_node_children = function(parent_key, depth)
         if sub and #sub > 0 then
             node.children = sub
         else
-            -- Leaf node: attach constituent LGAs
+            -- Leaf node: attach constituent adm2 features as children for grouping nodes
+            -- (e.g. a District containing multiple LGAs). Skip for adm3+ constituents
+            -- (sectors, wards) — the geo_node itself IS the boundary, so nesting the raw
+            -- adm_features record underneath creates a redundant duplicate row.
             local lga_children = {}
             for _, pcode in ipairs(pcodes) do
                 local lga = adm_by_pcode[pcode]
-                if lga then
+                if lga and tonumber(lga.adm_level) <= 2 then
                     local lga_node = {
                         pcode       = lga.pcode,
                         name        = lga.name,
@@ -337,9 +351,5 @@ local response = {
 
 local body = cjson.encode(response)
 if hierarchy_cache then hierarchy_cache:set(cache_key, body, 86400) end
-
-ngx.header["Content-Type"]  = "application/json"
-ngx.header["Cache-Control"] = "public, max-age=86400"
-ngx.header["Vary"]          = "X-Tenant-ID"
-ngx.header["X-Cache"]       = "MISS"
-ngx.print(body)
+db.set_tenant_cache(tenant_id, tc_key, body)
+send_cached(body, "MISS")

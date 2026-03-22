@@ -154,7 +154,7 @@ export function useMapLayers() {
     allBoundaryFeatures = (geojson.features ?? []) as BoundaryFeature[];
 
     const zoneFeatures = allBoundaryFeatures.filter(
-      (f) => f.properties?.feature_type === 'zone',
+      (f) => f.properties?.feature_type === 'zone' || f.properties?.feature_type === 'geo_node',
     );
     const zoneCollection = { type: 'FeatureCollection', features: zoneFeatures };
 
@@ -178,7 +178,11 @@ export function useMapLayers() {
         source: 'zones-overlay',
         paint: {
           'line-color': ['coalesce', ['get', 'color'], '#a78bfa'],
-          'line-width': ['case', ['==', ['get', 'zone_level'], 1], 2, 1.5],
+          'line-width': ['case',
+            ['any',
+              ['==', ['get', 'zone_level'], 1],
+              ['==', ['get', 'level_order'], 1],
+            ], 2, 1.5],
         },
       } as any, 'boundary-state-label');
     }

@@ -11,8 +11,17 @@
 
 local cjson = require("cjson.safe")
 local pg    = require("pg-pool")
+local db    = require("boundary-db")
 
 local tenant_id = tonumber(ngx.var.http_x_tenant_id)
+
+local function invalidate_cache()
+    local hc = ngx.shared.hierarchy_cache
+    if hc then hc:delete("h:" .. tenant_id) end
+    local gc = ngx.shared.geojson_cache
+    if gc then gc:delete("gj:" .. tenant_id) end
+    db.delete_tenant_cache(tenant_id)
+end
 local method    = ngx.req.get_method()
 local uri       = ngx.var.uri
 local zone_id   = tonumber(uri:match("^/admin/zones/(%d+)$"))
@@ -215,12 +224,7 @@ local function create_zone()
         return
     end
 
-    -- Invalidate hierarchy cache for this tenant
-    local hierarchy_cache = ngx.shared.hierarchy_cache
-    if hierarchy_cache then
-        hierarchy_cache:delete("h:" .. tenant_id)
-    end
-
+    invalidate_cache()
     ngx.status = 201
     ngx.header["Content-Type"] = "application/json"
     local created = insert_result and insert_result[1]
@@ -332,10 +336,7 @@ local function update_zone(zid)
         return
     end
 
-    -- Invalidate hierarchy cache
-    local hierarchy_cache = ngx.shared.hierarchy_cache
-    if hierarchy_cache then hierarchy_cache:delete("h:" .. tenant_id) end
-
+    invalidate_cache()
     ngx.header["Content-Type"] = "application/json"
     ngx.say(cjson.encode(result and result[1] or {}))
 end
@@ -370,10 +371,7 @@ local function delete_zone(zid)
         return
     end
 
-    -- Invalidate hierarchy cache
-    local hierarchy_cache = ngx.shared.hierarchy_cache
-    if hierarchy_cache then hierarchy_cache:delete("h:" .. tenant_id) end
-
+    invalidate_cache()
     ngx.header["Content-Type"] = "application/json"
     ngx.say('{"deleted":true}')
 end

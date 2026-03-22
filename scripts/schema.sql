@@ -93,8 +93,8 @@ ALTER TABLE tenants ADD COLUMN IF NOT EXISTS boundary_source VARCHAR(255);
 -- ---------------------------------------------------------------------------
 -- geo_hierarchy_levels  (per-tenant custom hierarchy level definitions)
 -- ---------------------------------------------------------------------------
--- level_label should match adm_features.level_label for the tenant's country (HDX / OCHA types);
--- UI loads options from GET /admin/geo-hierarchy/level-labels.
+-- level_label should match adm_features.level_label for the tenant's country_code (HDX / INEC / OCHA);
+-- UI loads DISTINCT options via GET /admin/geo-hierarchy/level-labels (dynamic per tenant’s country).
 CREATE TABLE IF NOT EXISTS geo_hierarchy_levels (
     id          SERIAL PRIMARY KEY,
     tenant_id   INTEGER NOT NULL REFERENCES tenants(tenant_id) ON DELETE CASCADE,
@@ -131,3 +131,23 @@ CREATE INDEX IF NOT EXISTS ghn_parent_idx ON geo_hierarchy_nodes(parent_id);
 CREATE INDEX IF NOT EXISTS ghn_state_idx  ON geo_hierarchy_nodes(tenant_id, state_pcode);
 CREATE INDEX IF NOT EXISTS ghn_pcode_idx  ON geo_hierarchy_nodes(pcode);
 CREATE INDEX IF NOT EXISTS ghn_geom_idx   ON geo_hierarchy_nodes USING GIST(geom);
+
+-- ---------------------------------------------------------------------------
+-- tenant_cache  (persistent L2 cache — survives nginx/docker restarts)
+-- ---------------------------------------------------------------------------
+-- Stores pre-computed JSON payloads per tenant+key so that ngx.shared cold
+-- misses (after restart) fall back to a cheap SELECT rather than re-running
+-- the full multi-join + Lua tree-build.  Written on first cache miss; cleared
+-- on any admin write that changes hierarchy or geojson data.
+--
+-- cache_key values:
+--   'hierarchy'     → /boundaries/hierarchy  (main branch, geo_hierarchy_nodes tree)
+--   'hierarchy_raw' → /boundaries/hierarchy?raw=1  (raw adm_features tree)
+--   'geojson'       → /boundaries/geojson
+CREATE TABLE IF NOT EXISTS tenant_cache (
+    tenant_id  INTEGER NOT NULL REFERENCES tenants(tenant_id) ON DELETE CASCADE,
+    cache_key  TEXT    NOT NULL,
+    payload    TEXT    NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (tenant_id, cache_key)
+);

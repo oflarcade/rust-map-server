@@ -9,11 +9,12 @@
  *   1. region_lga      — /region hits that resolve to raw LGA (varied coords)
  *   2. region_cache    — /region same coord repeated to verify ngx.shared hits
  *   3. region_zone     — /region hits inside custom zone boundary
- *   4. hierarchy       — /boundaries/hierarchy (ngx.shared cached per tenant)
- *   5. geojson         — /boundaries/geojson (large payload streaming)
- *   6. search          — /boundaries/search?q=<term> (indexed LIKE)
- *   7. tiles           — /tiles/{z}/{x}/{y} (Martin PMTiles)
- *   8. multi_tenant    — rotate all tenants on /region to catch cross-tenant bleed
+ *   4. geo_node_region — /region hits inside geo_hierarchy_nodes (node chain lookup)
+ *   5. hierarchy       — /boundaries/hierarchy (ngx.shared cached per tenant)
+ *   6. geojson         — /boundaries/geojson (ngx.shared.geojson_cache; verify X-Cache)
+ *   7. search          — /boundaries/search?q=<term> (indexed LIKE)
+ *   8. tiles           — /tiles/{z}/{x}/{y} (Martin PMTiles)
+ *   9. multi_tenant    — rotate all tenants on /region to catch cross-tenant bleed
  *
  * Response shape verified for /region:
  *   {
@@ -34,15 +35,17 @@ const BASE = __ENV.BASE || 'http://35.239.86.115:8080';
 // ---------------------------------------------------------------------------
 // Custom metrics
 // ---------------------------------------------------------------------------
-const regionLgaLatency   = new Trend('region_lga_ms',   true);
-const regionZoneLatency  = new Trend('region_zone_ms',  true);
-const regionCacheLatency = new Trend('region_cache_ms', true);
-const hierarchyLatency   = new Trend('hierarchy_ms',    true);
-const geojsonLatency     = new Trend('geojson_ms',      true);
-const searchLatency      = new Trend('search_ms',       true);
-const tileLatency        = new Trend('tile_ms',         true);
+const regionLgaLatency   = new Trend('region_lga_ms',    true);
+const regionZoneLatency  = new Trend('region_zone_ms',   true);
+const regionCacheLatency = new Trend('region_cache_ms',  true);
+const regionGeoNodeMs    = new Trend('region_geo_node_ms', true);
+const hierarchyLatency   = new Trend('hierarchy_ms',     true);
+const geojsonLatency     = new Trend('geojson_ms',       true);
+const searchLatency      = new Trend('search_ms',        true);
+const tileLatency        = new Trend('tile_ms',          true);
 const errorCount         = new Counter('endpoint_errors');
 const wrongTenantRate    = new Rate('wrong_tenant_response');
+const geojsonCacheHitRate = new Rate('geojson_cache_hit');
 
 // ---------------------------------------------------------------------------
 // Tenant fixtures — each entry is self-contained (coords belong to that tenant)
@@ -105,6 +108,18 @@ const TENANTS = [
 // Fixed coord for cache warmup/hit test — must be a valid point for tenant 11
 const CACHE_HIT = { tenantId: '11', lat: 6.4541, lon: 3.3947 };
 
+// Coords inside geo_hierarchy_nodes for geo_node_region scenario (p(95)<150ms target)
+const GEO_NODE_COORDS = [
+  { tenantId: '12', lat: -1.9441, lon: 30.0619, expectedCountry: 'RW' }, // Kigali/Gasabo
+  { tenantId: '12', lat: -1.9706, lon: 30.1044, expectedCountry: 'RW' }, // Remera
+  { tenantId: '12', lat: -2.0028, lon: 30.0585, expectedCountry: 'RW' }, // Nyarugenge
+  { tenantId: '12', lat: -2.6061, lon: 29.7396, expectedCountry: 'RW' }, // Huye
+  { tenantId: '18', lat: 12.4504, lon: 10.0429, expectedCountry: 'NG' }, // Jigawa/Hadejia
+  { tenantId: '18', lat: 11.9900, lon:  9.3200, expectedCountry: 'NG' }, // Dutse
+  { tenantId: '1',  lat: -1.80,   lon: 40.10,   expectedCountry: 'KE' }, // Kenya Zone 1
+  { tenantId: '1',  lat: -1.60,   lon: 39.90,   expectedCountry: 'KE' }, // Kenya Zone 1
+];
+
 // ---------------------------------------------------------------------------
 // Scenario options
 // ---------------------------------------------------------------------------
@@ -115,9 +130,9 @@ export const options = {
       executor: 'ramping-vus',
       startTime: '0s',
       stages: [
-        { duration: '15s', target: 10  },
-        { duration: '30s', target: 50  },
-        { duration: '30s', target: 100 },
+        { duration: '15s', target: 30  },
+        { duration: '30s', target: 150 },
+        { duration: '30s', target: 300 },
         { duration: '15s', target: 0   },
       ],
       exec: 'regionLgaTest',
@@ -138,7 +153,15 @@ export const options = {
       startTime: '20s',
       exec: 'regionZoneTest',
     },
-    // 4. Hierarchy — should be fast after first ngx.shared cache population
+    // 4. Geo node region — /region coords inside geo_hierarchy_nodes (node chain + CTE)
+    geo_node_region: {
+      executor: 'constant-vus',
+      vus: 100,
+      duration: '60s',
+      startTime: '10s',
+      exec: 'geoNodeRegionTest',
+    },
+    // 5. Hierarchy — should be fast after first ngx.shared cache population
     hierarchy: {
       executor: 'constant-vus',
       vus: 30,
@@ -146,15 +169,15 @@ export const options = {
       startTime: '10s',
       exec: 'hierarchyTest',
     },
-    // 5. GeoJSON — large payload; keep VU count low to avoid saturating bandwidth
+    // 6. GeoJSON — ngx.shared.geojson_cache; verify X-Cache: HIT after cold miss
     geojson: {
       executor: 'constant-vus',
-      vus: 5,
+      vus: 10,
       duration: '40s',
       startTime: '10s',
       exec: 'geojsonTest',
     },
-    // 6. Search — PostGIS indexed LIKE
+    // 7. Search — PostGIS indexed LIKE
     search: {
       executor: 'ramping-vus',
       startTime: '20s',
@@ -165,7 +188,7 @@ export const options = {
       ],
       exec: 'searchTest',
     },
-    // 7. Tiles — Martin PMTiles HTTP range serving
+    // 8. Tiles — Martin PMTiles HTTP range serving
     tiles: {
       executor: 'constant-vus',
       vus: 20,
@@ -173,7 +196,7 @@ export const options = {
       startTime: '10s',
       exec: 'tileTest',
     },
-    // 8. Multi-tenant isolation — 1 VU per tenant, verify country never bleeds
+    // 9. Multi-tenant isolation — 1 VU per tenant, verify country never bleeds
     multi_tenant: {
       executor: 'per-vu-iterations',
       vus: 4,
@@ -185,16 +208,21 @@ export const options = {
 
   thresholds: {
     // Region lookup via PostGIS GIST index (under moderate-to-heavy concurrent load)
-    region_lga_ms:   ['p(95)<200', 'p(99)<500'],
+    region_lga_ms:      ['p(95)<200', 'p(99)<500'],
     // Cache IS hitting (X-Cache: HIT verified in checks) but nginx is busy under 250+ concurrent VUs.
     // The ngx.shared lookup itself is <1ms; queuing overhead adds latency under heavy load.
-    region_cache_ms: ['p(95)<300'],
-    region_zone_ms:  ['p(95)<300'],   // zone ST_Contains + constituent LGA join
+    region_cache_ms:    ['p(95)<300'],
+    region_zone_ms:     ['p(95)<300'],      // zone ST_Contains + constituent LGA join
+    // geo_node lookup: ST_Contains on geo_hierarchy_nodes.geom + recursive CTE ancestor chain
+    region_geo_node_ms: ['p(95)<150', 'p(99)<400'],
 
     // Boundary endpoints
     hierarchy_ms: ['p(95)<400'],      // ngx.shared after first hit; first-hit DB query
-    geojson_ms:   ['p(95)<3000'],     // large payload, low concurrency
+    geojson_ms:   ['p(95)<3000'],     // ngx.shared cache hit; cold miss may be slow
     search_ms:    ['p(95)<500'],      // indexed LIKE
+
+    // GeoJSON cache hit rate: expect >80% HITs once warm
+    geojson_cache_hit: ['rate>0.80'],
 
     // Tiles — Martin range serving
     tile_ms: ['p(95)<400'],
@@ -243,6 +271,26 @@ function assertRegionShape(res, expectedCountry) {
 // ---------------------------------------------------------------------------
 // Test functions
 // ---------------------------------------------------------------------------
+export function geoNodeRegionTest() {
+  const c   = GEO_NODE_COORDS[Math.floor(Math.random() * GEO_NODE_COORDS.length)];
+  const url = `${BASE}/region?lat=${c.lat}&lon=${c.lon}`;
+  const res = http.get(url, { headers: { 'X-Tenant-ID': c.tenantId } });
+  regionGeoNodeMs.add(res.timings.duration);
+
+  if (res.status !== 200 && res.status !== 404) { errorCount.add(1); return; }
+  if (res.status === 404) return;
+
+  let body;
+  try { body = JSON.parse(res.body); } catch (e) { errorCount.add(1); return; }
+
+  check(res, {
+    'geo_node: found=true':        () => body.found === true,
+    'geo_node: has matched_level': () => typeof body.matched_level === 'string',
+    'geo_node: country.pcode ok':  () => !!body.country && body.country.pcode === c.expectedCountry,
+    'geo_node: state present':     () => !!body.state && !!body.state.pcode,
+  });
+}
+
 export function regionLgaTest() {
   const tenant = pick(TENANTS);
   const coord  = pick(tenant.coords);
@@ -311,6 +359,9 @@ export function geojsonTest() {
   const res = http.get(url, headers(tenant.id));
   geojsonLatency.add(res.timings.duration);
 
+  const isHit = res.headers['X-Cache'] === 'HIT';
+  geojsonCacheHitRate.add(isHit ? 1 : 0);
+
   if (res.status !== 200) { errorCount.add(1); return; }
   let body;
   try { body = JSON.parse(res.body); } catch(e) { errorCount.add(1); return; }
@@ -320,6 +371,7 @@ export function geojsonTest() {
     'geojson: features > 0':       () => Array.isArray(body.features) && body.features.length > 0,
     'geojson: feature has geom':   () => !!body.features[0].geometry,
     'geojson: feature has pcode':  () => !!body.features[0].properties.pcode,
+    'geojson: has X-Cache header': () => res.headers['X-Cache'] === 'HIT' || res.headers['X-Cache'] === 'MISS',
   });
   sleep(0.3); // be gentle — GeoJSON payloads are large (1-4 MB)
 }

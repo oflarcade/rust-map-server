@@ -122,21 +122,22 @@ function onNodeSelect(node: TreeNode) {
   <Transition name="panel-slide">
     <div
       v-if="hierarchyPanelOpen"
-      class="absolute top-2.5 left-[130px] w-[280px] max-h-[60vh] bg-white border border-slate-200 rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.12)] flex flex-col z-10 overflow-hidden"
+      class="absolute top-2.5 left-[130px] w-[320px] bg-white border border-slate-200 rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.12)] z-10 overflow-y-auto overflow-x-hidden"
+      style="max-height: calc(100vh - 80px)"
     >
-      <!-- Header -->
-      <div class="flex items-center px-3 pt-2.5 pb-1.5 border-b border-slate-100 flex-shrink-0">
+      <!-- Header — sticky so it stays visible when tree scrolls -->
+      <div class="flex items-center px-3 pt-2.5 pb-1.5 border-b border-slate-100 sticky top-0 bg-white z-10">
         <span class="flex-1 text-[13px] font-bold text-slate-900">Geo Hierarchy</span>
         <Button icon="pi pi-times" variant="text" size="small" @click="hierarchyPanelOpen = false" />
       </div>
 
-      <!-- Search -->
-      <div class="px-3 py-1.5 flex-shrink-0">
+      <!-- Search — sticky below header -->
+      <div class="px-3 py-1.5 sticky top-[44px] bg-white z-10 border-b border-slate-100">
         <InputText v-model="boundarySearch" placeholder="Search boundaries…" class="w-full !text-sm" />
       </div>
 
-      <!-- Tree body -->
-      <div class="overflow-y-auto flex-1 px-1 pb-2">
+      <!-- Tree body — natural flow, no overflow (outer panel scrolls) -->
+      <div class="px-1 pb-2">
         <div v-if="!filteredHierarchy" class="text-xs text-slate-400 text-center py-3">No hierarchy data</div>
         <template v-else>
           <Tree

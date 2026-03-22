@@ -123,13 +123,18 @@ export async function deleteGeoLevel(tenantId: string, id: number): Promise<void
 // Node API
 // ---------------------------------------------------------------------------
 
+/** Lua encodes empty TEXT[] as {} (object) — normalize to undefined so `?? []` guards work. */
+function normalizeNode(n: GeoNode): GeoNode {
+  return Array.isArray(n.constituent_pcodes) ? n : { ...n, constituent_pcodes: undefined };
+}
+
 export async function fetchGeoNodes(tenantId: string): Promise<GeoNode[]> {
   const res = await fetch(`${base()}/admin/geo-hierarchy/nodes`, {
     headers: headers(tenantId),
   });
   if (!res.ok) throw new Error(`fetchGeoNodes ${res.status}`);
   const data = await res.json();
-  return data.nodes ?? [];
+  return (data.nodes ?? []).map(normalizeNode);
 }
 
 export async function createGeoNode(tenantId: string, payload: GeoNodeCreatePayload): Promise<GeoNode> {
@@ -142,7 +147,7 @@ export async function createGeoNode(tenantId: string, payload: GeoNodeCreatePayl
     const err = await res.json().catch(() => ({}));
     throw new Error((err as any).error ?? `createGeoNode ${res.status}`);
   }
-  return res.json();
+  return res.json().then(normalizeNode);
 }
 
 export async function updateGeoNode(
@@ -159,7 +164,7 @@ export async function updateGeoNode(
     const err = await res.json().catch(() => ({}));
     throw new Error((err as any).error ?? `updateGeoNode ${res.status}`);
   }
-  return res.json();
+  return res.json().then(normalizeNode);
 }
 
 export async function deleteGeoNode(tenantId: string, id: number): Promise<void> {
@@ -173,10 +178,13 @@ export async function deleteGeoNode(tenantId: string, id: number): Promise<void>
 export async function fetchRawHierarchy(tenantId: string): Promise<any> {
   const res = await fetch(
     `${base()}/boundaries/hierarchy?raw=1&t=${tenantId}`,
-    { headers: { 'X-Tenant-ID': tenantId } },
+    { headers: { 'X-Tenant-ID': tenantId }, cache: 'no-store' },
   );
   if (!res.ok) throw new Error(`fetchRawHierarchy ${res.status}`);
-  return res.json();
+  const data = await res.json();
+  // Lua encodes an empty table as {} (object) — normalise to array
+  if (data && !Array.isArray(data.states)) data.states = [];
+  return data;
 }
 
 // ---------------------------------------------------------------------------
@@ -205,6 +213,17 @@ export function buildNodeTree(nodes: GeoNode[]): Map<string, GeoNode[]> {
   }
 
   return rootsByState;
+}
+
+/**
+ * Auto-generate a short level code from a label.
+ * "Senatorial District" → "SD", "Federal Constituency" → "FC",
+ * "Emirate" → "EM", "Ward" → "WA", "Zone" → "ZO"
+ */
+export function labelToCode(label: string): string {
+  const words = label.trim().split(/\s+/);
+  if (words.length === 1) return label.slice(0, 2).toUpperCase();
+  return words.map(w => w[0]?.toUpperCase() ?? '').join('').slice(0, 4);
 }
 
 /** Collect all LGA pcodes assigned to any node under a given tenants flat list */

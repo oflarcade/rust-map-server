@@ -1,25 +1,13 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import { useRouter } from 'vue-router';
-import { useTileInspector } from '../composables/useTileInspector';
 import { useBoundarySearch } from '../composables/useBoundarySearch';
 import { useMapInteraction } from '../composables/useMapInteraction';
-import { TENANTS } from '../config/tenants';
-import Select from 'primevue/select';
 import InputText from 'primevue/inputtext';
 import InputGroup from 'primevue/inputgroup';
-import Button from 'primevue/button';
 import Tree from 'primevue/tree';
 import Tag from 'primevue/tag';
 import type { TreeNode } from 'primevue/treenode';
 import type { HierarchyState, HierarchyChild, HierarchyZone, HierarchyAdmNode } from '../types/boundary';
-
-const router = useRouter();
-
-const {
-  selectedTenantId,
-  currentTenant,
-} = useTileInspector();
 
 const {
   boundarySearch,
@@ -123,6 +111,15 @@ const treeNodes = computed<TreeNode[]>(() => {
 // Node selection handlers
 // ---------------------------------------------------------------------------
 
+function findInTree(children: any[], pcode: string): any {
+  for (const child of children ?? []) {
+    if ((child.pcode ?? child.zone_pcode) === pcode) return child;
+    const found = findInTree(child.children ?? [], pcode);
+    if (found) return found;
+  }
+  return null;
+}
+
 function onNodeSelect(node: TreeNode) {
   const d = node.data as { type: string; pcode: string; name: string };
   if (d.type === 'state') {
@@ -132,14 +129,16 @@ function onNodeSelect(node: TreeNode) {
   } else if (d.type === 'zone') {
     highlightBoundary({ pcode: d.pcode, level: 'zone' });
   } else {
-    // lga or adm leaf
+    // leaf boundary node — may be an ungrouped LGA or a node deep in the children tree
     const state = boundaryHierarchy.value?.states.find((s) =>
-      s.lgas.some((l) => l.pcode === d.pcode),
+      s.lgas.some((l) => l.pcode === d.pcode) ||
+      findInTree(s.children, d.pcode) != null,
     );
     highlightBoundary({ pcode: d.pcode, level: 'lga', name: d.name });
     if (state) {
-      const lga = state.lgas.find((l) => l.pcode === d.pcode);
-      if (lga) flyToHierarchyItem(state, lga);
+      const item = state.lgas.find((l) => l.pcode === d.pcode)
+                ?? findInTree(state.children, d.pcode);
+      if (item) flyToHierarchyItem(state, item);
     }
   }
 }
@@ -158,29 +157,9 @@ function highlightPcode(pcode: string): string {
 </script>
 
 <template>
-  <aside class="bg-slate-50 text-slate-800 overflow-y-auto p-3.5 border-r border-slate-200 h-full max-[800px]:border-r-0 max-[800px]:border-b max-[800px]:border-slate-200 max-[800px]:max-h-[40vh]">
-    <!-- Tenant selector -->
-    <div class="pb-3 border-b border-slate-200 mb-3">
-      <div class="text-[10px] uppercase tracking-widest text-slate-500 mb-1.5">Tenant</div>
-      <Select
-        v-model="selectedTenantId"
-        :options="TENANTS"
-        optionValue="id"
-        :optionLabel="(t: typeof TENANTS[number]) => `${t.id} — ${t.name}`"
-        class="w-full !text-sm"
-      />
-      <div class="mt-1 text-xs text-sky-700 font-semibold">{{ currentTenant.name }}</div>
-      <Button
-        :label="`View All ${currentTenant.countryCode} Tenants`"
-        icon="pi pi-arrow-right"
-        iconPos="right"
-        variant="outlined"
-        class="w-full mt-1.5 !text-xs"
-        size="small"
-        @click="router.push('/country/' + currentTenant.countryCode)"
-      />
-    </div>
-
+  <aside
+    class="boundary-explorer-aside bg-slate-50 text-slate-800 overflow-y-auto p-3 border-r border-slate-200 h-full min-h-0 max-[800px]:border-r-0 max-[800px]:border-b max-[800px]:border-slate-200 max-[800px]:max-h-[40vh]"
+  >
     <!-- Search -->
     <section class="mt-3 pt-2.5 border-t border-slate-200">
       <InputGroup>
@@ -226,19 +205,23 @@ function highlightPcode(pcode: string): string {
         :pt="{ root: { class: 'border border-slate-200 rounded-md p-2' } }"
       >
         <template #default="{ node }">
-          <span class="flex items-center gap-1 text-xs">
+          <span class="flex items-center gap-1.5 min-w-0 w-full">
             <span
               v-if="node.data.color"
               class="inline-block w-2 h-2 rounded-full flex-shrink-0"
               :style="{ background: node.data.color }"
-            ></span>
-            <Tag
-              v-if="node.data.level_label"
-              severity="secondary"
-              class="!text-[9px] !py-0 !px-1 flex-shrink-0"
-            >{{ node.data.level_label }}</Tag>
-            <span v-html="highlight(node.data.name, boundarySearch)"></span>
-            <span class="text-slate-400 text-[10px]">({{ node.data.pcode }})</span>
+            />
+            <span class="flex flex-col min-w-0 flex-1 leading-tight">
+              <span class="truncate text-xs font-medium text-slate-800" v-html="highlight(node.data.name, boundarySearch)" />
+              <span class="flex items-center gap-1 mt-0.5">
+                <Tag
+                  v-if="node.data.level_label"
+                  severity="secondary"
+                  class="!text-[8px] !py-0 !px-1 flex-shrink-0"
+                >{{ node.data.level_label }}</Tag>
+                <span class="text-[9px] text-slate-400 font-mono truncate">{{ node.data.pcode }}</span>
+              </span>
+            </span>
           </span>
         </template>
       </Tree>

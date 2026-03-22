@@ -14,6 +14,7 @@ import {
   deleteGeoNode,
   collectAssignedPcodes,
   buildNodeTree,
+  labelToCode,
   type GeoLevel,
   type GeoNode,
   type GeoLevelCreatePayload,
@@ -24,14 +25,22 @@ import {
 // ---------------------------------------------------------------------------
 // Module-level singletons (shared across all callers)
 // ---------------------------------------------------------------------------
-const selectedRawPcodes = ref<Set<string>>(new Set());
-const targetNodeId      = ref<number | null>(null);
-const selectionMode     = ref<'idle' | 'selecting'>('idle');
+const selectedRawPcodes       = ref<Set<string>>(new Set());
+const targetNodeId            = ref<number | null>(null);
+const targetStatePcode        = ref<string | null>(null);
+const selectionMode           = ref<'idle' | 'selecting'>('idle');
+/** State pcode focused from raw boundary panel — scrolls/highlights custom tree on the right. */
+const focusedStatePcode       = ref<string | null>(null);
+/** States manually activated by clicking in the left panel (shown in right custom tree). */
+const manualActiveStatePcodes = ref<Set<string>>(new Set());
+/** Whether country is the root of the custom tree (always true for multi-state tenants). */
+const showCountryRoot    = ref(false);
+const isMultiStateTenant = ref(false);
 
 export type { GeoLevel, GeoNode, GeoLevelCreatePayload, GeoNodeCreatePayload, GeoNodeUpdatePayload };
 
 export function useGeoHierarchyEditor() {
-  const { selectedTenantId } = useTileInspector();
+  const { selectedTenantId, currentTenant } = useTileInspector();
   const qc = useQueryClient();
 
   const tenantKey = computed(() => selectedTenantId.value);
@@ -47,6 +56,8 @@ export function useGeoHierarchyEditor() {
     queryKey: computed(() => ['tenant', tenantKey.value, 'hierarchy', 'raw']),
     queryFn: () => fetchRawHierarchy(tenantKey.value),
     enabled: computed(() => !!tenantKey.value),
+    refetchOnMount: 'always',
+    staleTime: 0,
   });
 
   const {
@@ -83,14 +94,69 @@ export function useGeoHierarchyEditor() {
   const hdxLevelLabels = computed<string[]>(() => hdxLevelLabelsRaw.value ?? []);
   const geoNodes  = computed<GeoNode[]>(() => geoNodesRaw.value ?? []);
 
+  // ---------------------------------------------------------------------------
+  // Dynamic terminology — derive from actual hierarchy data so every tenant
+  // sees its own admin labels ("District", "Sub-County", "Préfecture", etc.)
+  // ---------------------------------------------------------------------------
+  const ADM1_BY_COUNTRY: Record<string, string> = {
+    NG: 'State', KE: 'County', UG: 'Region', RW: 'Province',
+    LR: 'County', CF: 'Préfecture', IN: 'State',
+  };
+
+  /** Human-readable label for the adm2 unit (LGA / District / Sub-County …) */
+  const adm2Label = computed<string>(() => {
+    for (const s of rawHierarchy.value?.states ?? []) {
+      const lgas = (s as any).lgas;
+      if (lgas?.length && lgas[0].level_label) return lgas[0].level_label as string;
+    }
+    return 'Area';
+  });
+
+  /** Abbreviated form for buttons — "Local Government Area" → "LGA", others as-is */
+  const adm2Short = computed<string>(() => {
+    const l = adm2Label.value;
+    if (l === 'Local Government Area') return 'LGA';
+    if (l.length > 14) return l.split(/[\s-]/)[0]; // first word for long labels
+    return l;
+  });
+
+  /** Human-readable label for the adm1 unit (State / Province / County …) */
+  const adm1Label = computed<string>(() => {
+    const cc = currentTenant.value.countryCode?.toUpperCase() ?? '';
+    return ADM1_BY_COUNTRY[cc] ?? 'State';
+  });
+
   const assignedPcodes = computed<Set<string>>(() => collectAssignedPcodes(geoNodes.value));
 
   const nodeTree = computed(() => buildNodeTree(geoNodes.value));
 
+  // States that already have nodes → auto-activate so they show in the right panel
+  const autoActiveStatePcodes = computed<Set<string>>(() => {
+    const s = new Set<string>();
+    for (const n of geoNodes.value) s.add(n.state_pcode);
+    return s;
+  });
+
+  /** All states visible in the custom tree right panel (auto + manually activated). */
+  const activeStatePcodes = computed<Set<string>>(() => {
+    const combined = new Set(autoActiveStatePcodes.value);
+    for (const p of manualActiveStatePcodes.value) combined.add(p);
+    return combined;
+  });
+
+  function activateState(pcode: string) {
+    const s = new Set(manualActiveStatePcodes.value);
+    s.add(pcode);
+    manualActiveStatePcodes.value = s;
+    focusedStatePcode.value = pcode;
+  }
+
   function invalidate() {
     qc.invalidateQueries({ queryKey: ['tenant', tenantKey.value, 'geo-levels'] });
     qc.invalidateQueries({ queryKey: ['tenant', tenantKey.value, 'geo-nodes'] });
-    qc.invalidateQueries({ queryKey: ['tenant', tenantKey.value, 'hierarchy'] });
+    // exact: true targets only the sidebar hierarchy, not ['hierarchy', 'raw'] (raw panel).
+    qc.invalidateQueries({ queryKey: ['tenant', tenantKey.value, 'hierarchy'], exact: true });
+    qc.invalidateQueries({ queryKey: ['tenant', tenantKey.value, 'geojson'] });
   }
 
   // ---------------------------------------------------------------------------
@@ -134,15 +200,27 @@ export function useGeoHierarchyEditor() {
   // ---------------------------------------------------------------------------
   // Cross-panel selection coordination
   // ---------------------------------------------------------------------------
+
+  /** Enter LGA selection mode targeting a state — each selected LGA becomes its own node. */
+  function enterSelectionModeForArea(statePcode: string) {
+    targetNodeId.value    = null;
+    targetStatePcode.value = statePcode;
+    selectionMode.value   = 'selecting';
+    selectedRawPcodes.value = new Set();
+  }
+
+  /** Enter LGA selection mode targeting an existing node (merges pcodes into that node). */
   function enterSelectionMode(nodeId: number) {
-    targetNodeId.value = nodeId;
-    selectionMode.value = 'selecting';
+    targetNodeId.value     = nodeId;
+    targetStatePcode.value = null;
+    selectionMode.value    = 'selecting';
     selectedRawPcodes.value = new Set();
   }
 
   function exitSelectionMode() {
-    selectionMode.value = 'idle';
-    targetNodeId.value = null;
+    selectionMode.value    = 'idle';
+    targetNodeId.value     = null;
+    targetStatePcode.value = null;
     selectedRawPcodes.value = new Set();
   }
 
@@ -153,26 +231,168 @@ export function useGeoHierarchyEditor() {
     selectedRawPcodes.value = s;
   }
 
-  async function assignSelectedToNode() {
-    if (!targetNodeId.value || selectedRawPcodes.value.size === 0) return;
-    const nid = targetNodeId.value;
-    // Get existing constituent_pcodes for the node and merge
-    const existing = geoNodes.value.find(n => n.id === nid);
-    const existingPcodes = existing?.constituent_pcodes ?? [];
-    const merged = Array.from(new Set([...existingPcodes, ...selectedRawPcodes.value]));
-    await updateNodeMutation.mutateAsync({ id: nid, payload: { constituent_pcodes: merged } });
-    exitSelectionMode();
+  /** Create one individual GeoNode per selected pcode under a state or parent node.
+   *  parentId=null → root nodes under the state; parentId=N → child nodes under node N.
+   *  When parentId=null (Province-level), adm3+ sectors are auto-nested under their parent
+   *  district node (existing or just-created in the same batch). */
+  async function assignAreasToParent(statePcode: string, parentId: number | null = null) {
+    // Build pcode → {name, level_label} + sector→parent district pcode from raw hierarchy
+    const pcodeInfo = new Map<string, { name: string; level_label: string }>();
+    const sectorToDistrictPcode = new Map<string, string>();
+    for (const state of rawHierarchy.value?.states ?? []) {
+      for (const lga of (state as any).lgas ?? []) {
+        pcodeInfo.set(lga.pcode, { name: lga.name, level_label: lga.level_label ?? adm2Label.value });
+        for (const child of (lga.children ?? []) as any[]) {
+          pcodeInfo.set(child.pcode, { name: child.name, level_label: child.level_label ?? adm2Label.value });
+          sectorToDistrictPcode.set(child.pcode, lga.pcode);
+        }
+      }
+    }
+
+    // Level cache: label → GeoLevel (pre-seeded from existing levels to avoid duplicates)
+    const levelByLabel = new Map<string, GeoLevel>();
+    for (const l of geoLevels.value) levelByLabel.set(l.level_label.toLowerCase(), l);
+
+    async function resolveLevel(label: string): Promise<GeoLevel> {
+      const key = label.toLowerCase();
+      if (levelByLabel.has(key)) return levelByLabel.get(key)!;
+      const nextOrder = levelByLabel.size > 0
+        ? Math.max(...Array.from(levelByLabel.values()).map(l => l.level_order)) + 1
+        : 1;
+      const created = await createGeoLevel(tenantKey.value, {
+        level_order: nextOrder,
+        level_label: label,
+        level_code:  labelToCode(label),
+      });
+      levelByLabel.set(key, created);
+      return created;
+    }
+
+    if (parentId === null) {
+      // Province-level: smart-nest adm3+ items under their parent district node.
+      // Pre-seed district pcode → node id from existing nodes.
+      const districtPcodeToNodeId = new Map<string, number>();
+      for (const n of geoNodes.value) {
+        if (n.constituent_pcodes?.length === 1 && n.state_pcode === statePcode) {
+          districtPcodeToNodeId.set(n.constituent_pcodes[0], n.id);
+        }
+      }
+
+      // First pass: create adm2 (district) nodes; capture their ids for adm3 nesting
+      const adm2Pcodes = [...selectedRawPcodes.value].filter(p => !sectorToDistrictPcode.has(p));
+      const adm3Pcodes = [...selectedRawPcodes.value].filter(p => sectorToDistrictPcode.has(p));
+
+      for (const pcode of adm2Pcodes) {
+        const info = pcodeInfo.get(pcode);
+        const level = await resolveLevel(info?.level_label ?? adm2Label.value);
+        const created = await createGeoNode(tenantKey.value, {
+          state_pcode:        statePcode,
+          parent_id:          null,
+          level_id:           level.id,
+          name:               info?.name ?? pcode,
+          constituent_pcodes: [pcode],
+        });
+        districtPcodeToNodeId.set(pcode, created.id);
+      }
+
+      // Second pass: create adm3+ nodes nested under their parent district
+      for (const pcode of adm3Pcodes) {
+        const districtPcode = sectorToDistrictPcode.get(pcode)!;
+        const effectiveParentId = districtPcodeToNodeId.get(districtPcode) ?? null;
+        const info = pcodeInfo.get(pcode);
+        const level = await resolveLevel(info?.level_label ?? adm2Label.value);
+        await createGeoNode(tenantKey.value, {
+          state_pcode:        statePcode,
+          parent_id:          effectiveParentId,
+          level_id:           level.id,
+          name:               info?.name ?? pcode,
+          constituent_pcodes: [pcode],
+        });
+      }
+    } else {
+      // Node-level: all selected pcodes go directly under the specified parent
+      for (const pcode of selectedRawPcodes.value) {
+        const info = pcodeInfo.get(pcode);
+        const level = await resolveLevel(info?.level_label ?? adm2Label.value);
+        await createGeoNode(tenantKey.value, {
+          state_pcode:        statePcode,
+          parent_id:          parentId,
+          level_id:           level.id,
+          name:               info?.name ?? pcode,
+          constituent_pcodes: [pcode],
+        });
+      }
+    }
+    invalidate();
   }
 
-  // Clear selection when tenant changes
-  watch(tenantKey, exitSelectionMode);
+  async function assignSelectedToNode() {
+    if (selectedRawPcodes.value.size === 0) return;
+    try {
+      if (targetStatePcode.value) {
+        await assignAreasToParent(targetStatePcode.value, null);
+      } else if (targetNodeId.value) {
+        const parent = geoNodes.value.find(n => n.id === targetNodeId.value!);
+        if (parent) {
+          await assignAreasToParent(parent.state_pcode, targetNodeId.value);
+        }
+      }
+    } catch (e) {
+      // Partial failure — some nodes may have been created; refresh so UI is consistent
+      invalidate();
+      throw e;
+    } finally {
+      // Always exit selection mode so the user isn't stuck in a broken state
+      exitSelectionMode();
+    }
+  }
+
+  // Clear selection + active states + country root mode when tenant changes
+  watch(tenantKey, () => {
+    exitSelectionMode();
+    focusedStatePcode.value = null;
+    manualActiveStatePcodes.value = new Set();
+    showCountryRoot.value    = false;
+    isMultiStateTenant.value = false;
+  });
+
+  // When raw hierarchy loads: auto-activate states + detect multi-state
+  watch(rawHierarchy, (hierarchy) => {
+    if (!hierarchy?.states?.length) return;
+    const s = new Set(manualActiveStatePcodes.value);
+    for (const state of hierarchy.states) s.add(state.pcode);
+    manualActiveStatePcodes.value = s;
+
+    const multi = hierarchy.states.length >= 2;
+    isMultiStateTenant.value = multi;
+    if (multi) showCountryRoot.value = true;  // locked on for country-level tenants
+  });
+
+  function toggleCountryRoot() {
+    if (!isMultiStateTenant.value) showCountryRoot.value = !showCountryRoot.value;
+  }
+
+  function focusRawState(pcode: string | null) {
+    focusedStatePcode.value = pcode;
+  }
 
   return {
     // State
+    adm1Label,
+    adm2Label,
+    adm2Short,
     selectedTenantId: tenantKey,
     selectionMode,
     selectedRawPcodes,
     targetNodeId,
+    targetStatePcode,
+    focusedStatePcode,
+    focusRawState,
+    activeStatePcodes,
+    activateState,
+    showCountryRoot,
+    isMultiStateTenant,
+    toggleCountryRoot,
 
     // Data
     rawHierarchy,
@@ -204,6 +424,7 @@ export function useGeoHierarchyEditor() {
 
     // Selection
     enterSelectionMode,
+    enterSelectionModeForArea,
     exitSelectionMode,
     togglePcode,
     assignSelectedToNode,

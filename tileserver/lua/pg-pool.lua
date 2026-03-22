@@ -16,8 +16,10 @@ local CONFIG = {
 }
 
 -- Execute a SQL query with optional positional parameters ($1, $2, ...).
+-- Pass nparams explicitly when the params array contains nil values (e.g. optional SQL NULL
+-- fields), because table.unpack stops at the first nil when no explicit end index is given.
 -- Returns result table on success, nil + error string on failure.
-function M.exec(sql, params)
+function M.exec(sql, params, nparams)
     local pg = pgmoon.new(CONFIG)
     local ok, err = pg:connect()
     if not ok then
@@ -25,8 +27,9 @@ function M.exec(sql, params)
     end
 
     local result, err2
-    if params and #params > 0 then
-        result, err2 = pg:query(sql, table.unpack(params))
+    if params then
+        local n = nparams or params.n or #params
+        result, err2 = pg:query(sql, table.unpack(params, 1, n))
     else
         result, err2 = pg:query(sql)
     end

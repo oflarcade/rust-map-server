@@ -1,86 +1,35 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import Button from 'primevue/button';
+import GeoLevelFormDialog from './GeoLevelFormDialog.vue';
 import { useGeoHierarchyEditor, type GeoLevel } from '../composables/useGeoHierarchyEditor';
 
 const {
   geoLevels,
-  hdxLevelLabels,
   levelsLoading,
-  hdxLabelsLoading,
-  createLevel,
-  updateLevel,
   deleteLevel,
 } = useGeoHierarchyEditor();
 
-// Form state
-const showForm   = ref(false);
-const editingId  = ref<number | null>(null);
-const formOrder  = ref<number>(1);
-const formLabel  = ref('');
-const formCode   = ref('');
-const formError  = ref('');
-const saving     = ref(false);
+const showForm = ref(false);
+const editingId = ref<number | null>(null);
 
-/** HDX labels from DB, plus current value when editing a legacy / migrated row. */
-const labelChoices = computed(() => {
-  const fromApi = [...(hdxLevelLabels.value ?? [])];
-  const cur = formLabel.value.trim();
-  if (cur && !fromApi.includes(cur)) fromApi.push(cur);
-  return fromApi.sort((a, b) => a.localeCompare(b));
+const editLevelForDialog = computed(() => {
+  if (editingId.value == null) return null;
+  return geoLevels.value.find(l => l.id === editingId.value) ?? null;
 });
 
 function openCreate() {
   editingId.value = null;
-  formOrder.value = (geoLevels.value.length > 0
-    ? Math.max(...geoLevels.value.map(l => l.level_order)) + 1
-    : 1);
-  formLabel.value = '';
-  formCode.value  = '';
-  formError.value = '';
-  showForm.value  = true;
+  showForm.value = true;
 }
 
 function openEdit(level: GeoLevel) {
   editingId.value = level.id;
-  formOrder.value = level.level_order;
-  formLabel.value = level.level_label;
-  formCode.value  = level.level_code;
-  formError.value = '';
-  showForm.value  = true;
+  showForm.value = true;
 }
 
 function cancelForm() {
   showForm.value = false;
-}
-
-async function saveForm() {
-  formError.value = '';
-  if (!formLabel.value.trim() || !formCode.value.trim()) {
-    formError.value = 'HDX level type and short code are required.';
-    return;
-  }
-  saving.value = true;
-  try {
-    if (editingId.value != null) {
-      await updateLevel(editingId.value, {
-        level_order: formOrder.value,
-        level_label: formLabel.value.trim(),
-        level_code:  formCode.value.trim().toUpperCase(),
-      });
-    } else {
-      await createLevel({
-        level_order: formOrder.value,
-        level_label: formLabel.value.trim(),
-        level_code:  formCode.value.trim().toUpperCase(),
-      });
-    }
-    showForm.value = false;
-  } catch (e: any) {
-    formError.value = e.message ?? 'Save failed.';
-  } finally {
-    saving.value = false;
-  }
 }
 
 async function removeLevel(level: GeoLevel) {
@@ -132,54 +81,10 @@ async function removeLevel(level: GeoLevel) {
       </div>
     </div>
 
-    <!-- Inline form -->
-    <div v-if="showForm" class="mt-3 border-t border-slate-200 pt-3 space-y-2">
-      <div class="grid grid-cols-3 gap-2">
-        <div>
-          <label class="block text-[10px] text-slate-500 mb-0.5">Order</label>
-          <input
-            v-model.number="formOrder"
-            type="number" min="1"
-            class="w-full border border-slate-300 rounded px-2 py-1 text-xs"
-          />
-        </div>
-        <div>
-          <label class="block text-[10px] text-slate-500 mb-0.5">Code</label>
-          <input
-            v-model="formCode"
-            placeholder="SD"
-            maxlength="10"
-            class="w-full border border-slate-300 rounded px-2 py-1 text-xs uppercase"
-          />
-        </div>
-        <div class="col-span-3 -mt-1">
-          <label class="block text-[10px] text-slate-500 mb-0.5">HDX level type</label>
-          <template v-if="hdxLabelsLoading">
-            <div class="text-xs text-slate-400 py-1">Loading types…</div>
-          </template>
-          <template v-else-if="labelChoices.length === 0">
-            <div class="text-[10px] text-amber-700 leading-snug">
-              No <code class="text-[9px]">level_label</code> values in PostGIS for this tenant’s country (adm3+).
-              Run HDX / INEC import so boundaries carry official type names.
-            </div>
-          </template>
-          <select
-            v-else
-            v-model="formLabel"
-            class="w-full border border-slate-300 rounded px-2 py-1.5 text-xs bg-white"
-          >
-            <option disabled value="">Select type (from adm_features)…</option>
-            <option v-for="lbl in labelChoices" :key="lbl" :value="lbl">
-              {{ lbl }}
-            </option>
-          </select>
-        </div>
-      </div>
-      <div v-if="formError" class="text-xs text-red-600">{{ formError }}</div>
-      <div class="flex gap-2">
-        <Button label="Save" size="small" :loading="saving" :disabled="!formLabel.trim()" @click="saveForm" />
-        <Button label="Cancel" size="small" severity="secondary" outlined @click="cancelForm" />
-      </div>
-    </div>
+    <GeoLevelFormDialog
+      v-if="showForm"
+      :edit-level="editLevelForDialog"
+      @close="cancelForm"
+    />
   </div>
 </template>

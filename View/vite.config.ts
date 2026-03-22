@@ -28,5 +28,12 @@ export default defineConfig({
   server: {
     port: 4000,
     open: true,
+    proxy: {
+      '/boundaries': 'http://localhost:8080',
+      '/region':     'http://localhost:8080',
+      '/admin':      'http://localhost:8080',
+      '/health':     'http://localhost:8080',
+      '/tiles':      'http://localhost:8080',
+    },
   },
 });

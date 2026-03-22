@@ -35,11 +35,19 @@ ngx.header["Content-Type"] = "application/json"
 -- Helper: invalidate hierarchy cache for tenant
 -- ---------------------------------------------------------------------------
 local function invalidate_cache()
+    -- L1: ngx.shared (in-memory)
     local hc = ngx.shared.hierarchy_cache
     if hc then
         hc:delete("h:" .. tenant_id)
         hc:delete("h:" .. tenant_id .. ":raw")
     end
+    local gc = ngx.shared.geojson_cache
+    if gc then gc:delete("gj:" .. tenant_id) end
+    -- region_cache has no prefix-scan; hierarchy edits are infrequent admin ops
+    local rc = ngx.shared.region_cache
+    if rc then rc:flush_all() end
+    -- L2: tenant_cache in Postgres (persistent)
+    db.delete_tenant_cache(tenant_id)
 end
 
 -- ---------------------------------------------------------------------------
@@ -70,7 +78,7 @@ local function cascade_ancestors(start_node_id)
                 ) AS pcodes
             ),
             geom_data AS (
-                SELECT ST_Multi(ST_Union(a.geom)) AS g
+                SELECT ST_MakeValid(ST_Multi(ST_Union(a.geom))) AS g
                 FROM adm_features a, child_pcodes cp
                 WHERE a.pcode = ANY(cp.pcodes)
                   AND cardinality(cp.pcodes) > 0
@@ -78,7 +86,7 @@ local function cascade_ancestors(start_node_id)
             UPDATE geo_hierarchy_nodes SET
                 constituent_pcodes = (SELECT pcodes FROM child_pcodes),
                 geom = (SELECT g FROM geom_data),
-                area_sqkm = (SELECT ROUND((ST_Area(g::geography) / 1000000.0)::numeric, 2)
+                area_sqkm = (SELECT ROUND((ABS(ST_Area(g::geography)) / 1000000.0)::numeric, 2)
                              FROM geom_data),
                 center_lat = (SELECT ROUND(ST_Y(ST_Centroid(g))::numeric, 6) FROM geom_data),
                 center_lon = (SELECT ROUND(ST_X(ST_Centroid(g))::numeric, 6) FROM geom_data),
@@ -169,19 +177,13 @@ local function list_levels()
 end
 
 local function list_level_labels()
-    local rows, err = db.get_hdx_level_labels(tenant_id)
+    local labels, err = db.get_level_labels_for_tenant(tenant_id)
     if err then
         ngx.status = 502
         ngx.say(cjson.encode({error="Database error", code="DB_ERROR", detail=err}))
         return
     end
-    local labels = {}
-    for _, r in ipairs(rows or {}) do
-        if r.level_label and r.level_label ~= ngx.null then
-            table.insert(labels, r.level_label)
-        end
-    end
-    if #labels == 0 then labels = cjson.empty_array end
+    if not labels or #labels == 0 then labels = cjson.empty_array end
     ngx.say(cjson.encode({tenant_id = tenant_id, labels = labels}))
 end
 
@@ -297,6 +299,17 @@ local function delete_level(lid)
         return
     end
 
+    -- Delete all nodes at this level first (level_id FK has no CASCADE)
+    local _, err_nodes = pg.exec(
+        "DELETE FROM geo_hierarchy_nodes WHERE level_id = $1 AND tenant_id = $2",
+        {lid, tenant_id}
+    )
+    if err_nodes then
+        ngx.status = 502
+        ngx.say(cjson.encode({error="Database error", code="DB_ERROR", detail=err_nodes}))
+        return
+    end
+
     local _, err2 = pg.exec(
         "DELETE FROM geo_hierarchy_levels WHERE id = $1 AND tenant_id = $2",
         {lid, tenant_id}
@@ -353,7 +366,7 @@ local function create_node()
     local name       = body.name
     local state_pcode = body.state_pcode
     local parent_id  = body.parent_id and tonumber(body.parent_id)
-    local color      = body.color
+    local color      = body.color  -- may be nil (optional); explicit nparams passed to pg.exec
     local constituent_pcodes = body.constituent_pcodes  -- optional array
 
     if not level_id or not name or name == "" or not state_pcode or state_pcode == "" then
@@ -401,7 +414,7 @@ local function create_node()
 
     -- Use a CTE to atomically generate the pcode and insert
     -- parent_id may be NULL for root nodes
-    local parent_id_param = parent_id  -- nil if root
+    local parent_id_param = parent_id  -- nil for root nodes; explicit nparams passed to pg.exec below
     local parent_id_cond
     if parent_id then
         parent_id_cond = "parent_id = " .. parent_id
@@ -424,11 +437,15 @@ local function create_node()
                   AND pcode ~ ('.*-]] .. level_code .. [[\d+$')
             ),
             geom_cte AS (
-                SELECT ST_Multi(ST_Union(a.geom)) AS g,
-                       ROUND((ST_Area(ST_Multi(ST_Union(a.geom))::geography) / 1000000.0)::numeric, 2) AS area,
-                       ROUND(ST_Y(ST_Centroid(ST_Multi(ST_Union(a.geom))))::numeric, 6) AS clat,
-                       ROUND(ST_X(ST_Centroid(ST_Multi(ST_Union(a.geom))))::numeric, 6) AS clon
+                SELECT ST_MakeValid(ST_Multi(ST_Union(a.geom))) AS g
                 FROM adm_features a WHERE a.pcode = ANY($5::text[])
+            ),
+            geom_metrics AS (
+                SELECT g,
+                       ROUND((ABS(ST_Area(g::geography)) / 1000000.0)::numeric, 2) AS area,
+                       ROUND(ST_Y(ST_Centroid(g))::numeric, 6) AS clat,
+                       ROUND(ST_X(ST_Centroid(g))::numeric, 6) AS clon
+                FROM geom_cte
             )
             INSERT INTO geo_hierarchy_nodes(tenant_id, parent_id, state_pcode, level_id, pcode, name, color,
                                             constituent_pcodes, geom, area_sqkm, center_lat, center_lon)
@@ -437,13 +454,14 @@ local function create_node()
                    $7, $8,
                    $5::text[],
                    g, area, clat, clon
-            FROM seq_cte, geom_cte
+            FROM seq_cte, geom_metrics
             RETURNING id, parent_id, state_pcode, level_id, pcode, name, color,
                       array_to_string(constituent_pcodes, ',') AS constituent_pcodes,
                       area_sqkm, center_lat, center_lon, created_at, updated_at
         ]], parent_id_cond)
         insert_params = {tenant_id, parent_id_param, state_pcode, level_id,
                          pcodes_literal, parent_pcode, name, color}
+        insert_params.n = 8
     else
         insert_sql = string.format([[
             WITH seq_cte AS (
@@ -465,9 +483,12 @@ local function create_node()
         ]], parent_id_cond)
         insert_params = {tenant_id, parent_id_param, state_pcode, level_id,
                          parent_pcode, name, color}
+        insert_params.n = 7
     end
 
-    local result, err2 = pg.exec(insert_sql, insert_params)
+    -- Pass explicit param count (stored in .n) so table.unpack works correctly when optional
+    -- fields (parent_id, color) are Lua nil — table.unpack stops at nil without explicit n.
+    local result, err2 = pg.exec(insert_sql, insert_params, insert_params.n)
     if err2 then
         ngx.status = 502
         ngx.say(cjson.encode({error="Database error", code="DB_ERROR", detail=err2}))
@@ -531,10 +552,11 @@ local function update_node(nid)
         table.insert(params, pcodes_literal)
         idx = idx + 1
         -- Compute geom
-        table.insert(sets, "geom = (SELECT ST_Multi(ST_Union(a.geom)) FROM adm_features a WHERE a.pcode = ANY($" .. (idx-1) .. "::text[]))")
-        table.insert(sets, "area_sqkm = (SELECT ROUND((ST_Area(ST_Multi(ST_Union(a.geom))::geography)/1000000.0)::numeric,2) FROM adm_features a WHERE a.pcode = ANY($" .. (idx-1) .. "::text[]))")
-        table.insert(sets, "center_lat = (SELECT ROUND(ST_Y(ST_Centroid(ST_Multi(ST_Union(a.geom))))::numeric,6) FROM adm_features a WHERE a.pcode = ANY($" .. (idx-1) .. "::text[]))")
-        table.insert(sets, "center_lon = (SELECT ROUND(ST_X(ST_Centroid(ST_Multi(ST_Union(a.geom))))::numeric,6) FROM adm_features a WHERE a.pcode = ANY($" .. (idx-1) .. "::text[]))")
+        local p = "$" .. (idx-1) .. "::text[]"
+        table.insert(sets, "geom = (SELECT ST_MakeValid(ST_Multi(ST_Union(a.geom))) FROM adm_features a WHERE a.pcode = ANY(" .. p .. "))")
+        table.insert(sets, "area_sqkm = (SELECT ROUND((ABS(ST_Area(ST_MakeValid(ST_Multi(ST_Union(a.geom)))::geography))/1000000.0)::numeric,2) FROM adm_features a WHERE a.pcode = ANY(" .. p .. "))")
+        table.insert(sets, "center_lat = (SELECT ROUND(ST_Y(ST_Centroid(ST_MakeValid(ST_Multi(ST_Union(a.geom)))))::numeric,6) FROM adm_features a WHERE a.pcode = ANY(" .. p .. "))")
+        table.insert(sets, "center_lon = (SELECT ROUND(ST_X(ST_Centroid(ST_MakeValid(ST_Multi(ST_Union(a.geom)))))::numeric,6) FROM adm_features a WHERE a.pcode = ANY(" .. p .. "))")
         recompute_geom = true
     end
 
@@ -602,7 +624,7 @@ local function delete_node(nid)
                 ) AS pcodes
             ),
             geom_data AS (
-                SELECT ST_Multi(ST_Union(a.geom)) AS g
+                SELECT ST_MakeValid(ST_Multi(ST_Union(a.geom))) AS g
                 FROM adm_features a, child_pcodes cp
                 WHERE a.pcode = ANY(cp.pcodes)
                   AND cardinality(cp.pcodes) > 0
@@ -610,7 +632,7 @@ local function delete_node(nid)
             UPDATE geo_hierarchy_nodes SET
                 constituent_pcodes = (SELECT pcodes FROM child_pcodes),
                 geom = (SELECT g FROM geom_data),
-                area_sqkm = (SELECT ROUND((ST_Area(g::geography)/1000000.0)::numeric,2) FROM geom_data),
+                area_sqkm = (SELECT ROUND((ABS(ST_Area(g::geography))/1000000.0)::numeric,2) FROM geom_data),
                 center_lat = (SELECT ROUND(ST_Y(ST_Centroid(g))::numeric,6) FROM geom_data),
                 center_lon = (SELECT ROUND(ST_X(ST_Centroid(g))::numeric,6) FROM geom_data),
                 updated_at = NOW()

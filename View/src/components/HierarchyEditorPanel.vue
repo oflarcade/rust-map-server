@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { useTileInspector } from '../composables/useTileInspector';
-import LevelConfigPanel from './LevelConfigPanel.vue';
 import RawBoundaryPanel from './RawBoundaryPanel.vue';
 import HierarchyBuilderPanel from './HierarchyBuilderPanel.vue';
 
@@ -24,10 +23,6 @@ const { hierarchyEditorOpen } = useTileInspector();
       </button>
     </div>
 
-    <div class="editor-shell__levels">
-      <LevelConfigPanel />
-    </div>
-
     <div class="editor-shell__split">
       <div class="editor-shell__col editor-shell__col--raw">
         <RawBoundaryPanel />
@@ -41,8 +36,9 @@ const { hierarchyEditorOpen } = useTileInspector();
 
 <style scoped>
 .editor-shell {
-  width: min(880px, calc(100vw - 20px));
-  max-height: min(520px, calc(100vh - 120px));
+  width: min(1040px, calc(100vw - 20px));
+  max-height: min(900px, calc(100vh - 56px));
+  height: calc(100vh - 80px);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -99,16 +95,9 @@ const { hierarchyEditorOpen } = useTileInspector();
   transform: scale(0.96);
 }
 
-.editor-shell__levels {
-  flex-shrink: 0;
-  padding: 8px 10px 6px;
-  border-bottom: 1px solid rgba(226, 232, 240, 0.85);
-  background: rgba(255, 255, 255, 0.55);
-}
-
 .editor-shell__split {
   flex: 1;
-  min-height: 0;
+  min-height: 280px;
   display: flex;
   overflow: hidden;
 }
@@ -122,14 +111,17 @@ const { hierarchyEditorOpen } = useTileInspector();
 }
 
 .editor-shell__col--raw {
-  width: 38%;
-  flex-shrink: 0;
+  width: 40%;
+  flex: 1 1 42%;
+  min-width: 0;
+  min-height: 200px;
   border-right: 1px solid rgba(226, 232, 240, 0.95);
   background: rgba(255, 255, 255, 0.65);
 }
 
 .editor-shell__col--tree {
-  flex: 1;
+  flex: 1 1 58%;
+  min-width: 0;
   background: rgba(255, 255, 255, 0.85);
 }
 </style>

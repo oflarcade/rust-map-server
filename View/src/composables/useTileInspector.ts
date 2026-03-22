@@ -1,4 +1,29 @@
 import { computed, reactive, ref, watch } from 'vue';
+
+const LAST_TENANT_STORAGE_KEY = 'newglobe.selectedTenantId';
+
+function readStoredTenantId(): string | null {
+  try {
+    const v = localStorage.getItem(LAST_TENANT_STORAGE_KEY);
+    return v && v.length > 0 ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistStoredTenantId(id: string): void {
+  try {
+    localStorage.setItem(LAST_TENANT_STORAGE_KEY, id);
+  } catch {
+    /* private mode, etc. */
+  }
+}
+
+function initialTenantIdFromStorage(): string {
+  const stored = readStoredTenantId();
+  if (stored && TENANTS.some((t) => t.id === stored)) return stored;
+  return TENANTS[0]?.id ?? '1';
+}
 import maplibregl, { type Map } from 'maplibre-gl';
 import { DEFAULT_MARTIN_URL, DEFAULT_PROXY_URL, normalizeBaseUrl } from '../config/urls';
 import { TENANTS, loadTenants, type TenantConfig } from '../config/tenants';
@@ -39,11 +64,12 @@ export type {
 // Module-level shared state (singleton across all callers)
 // ---------------------------------------------------------------------------
 
-const selectedTenantId = ref<string>('11');
+const selectedTenantId = ref<string>(initialTenantIdFromStorage());
 const tenantList = ref<TenantConfig[]>(TENANTS);
 const hierarchyPanelOpen = ref(false);
 const layersPanelOpen = ref(false);
 const hierarchyEditorOpen = ref(false);
+const addTenantWizardOpen = ref(false);
 
 const currentTenant = computed<TenantConfig>(
   () => tenantList.value.find((t) => t.id === selectedTenantId.value) ?? tenantList.value[0] ?? TENANTS[0],
@@ -93,6 +119,21 @@ export function useTileInspector() {
   async function reloadTenantList(): Promise<void> {
     const PROXY = normalizeBaseUrl(DEFAULT_PROXY_URL);
     tenantList.value = await loadTenants(PROXY);
+    const ids = new Set(tenantList.value.map((t) => t.id));
+    if (!ids.has(selectedTenantId.value)) {
+      const stored = readStoredTenantId();
+      if (stored && ids.has(stored)) selectedTenantId.value = stored;
+      else if (tenantList.value[0]) selectedTenantId.value = tenantList.value[0].id;
+    }
+    persistStoredTenantId(selectedTenantId.value);
+  }
+
+  function openAddTenantWizard(): void {
+    addTenantWizardOpen.value = true;
+  }
+
+  function closeAddTenantWizard(): void {
+    addTenantWizardOpen.value = false;
   }
 
   function cleanup(): void {
@@ -159,7 +200,8 @@ export function useTileInspector() {
 
   if (!watcherRegistered) {
     watcherRegistered = true;
-    watch(selectedTenantId, () => {
+    watch(selectedTenantId, (id) => {
+      persistStoredTenantId(id);
       reloadTenant();
     });
   }
@@ -172,6 +214,9 @@ export function useTileInspector() {
     hierarchyPanelOpen,
     layersPanelOpen,
     hierarchyEditorOpen,
+    addTenantWizardOpen,
+    openAddTenantWizard,
+    closeAddTenantWizard,
     currentTenant,
     currentZoom,
     boundarySummary,

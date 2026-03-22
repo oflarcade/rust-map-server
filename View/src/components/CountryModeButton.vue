@@ -8,13 +8,49 @@ import { useMapLayers } from '../composables/useMapLayers';
 import Button from 'primevue/button';
 import InputText from 'primevue/inputtext';
 import Tree from 'primevue/tree';
+import Select from 'primevue/select';
 import HierarchyEditorPanel from './HierarchyEditorPanel.vue';
 import Tag from 'primevue/tag';
+import type { TenantConfig } from '../types/tenant';
 import type { TreeNode } from 'primevue/treenode';
 import type { HierarchyChild, HierarchyZone, HierarchyAdmNode, HierarchyState } from '../types/boundary';
 
 const { isCountryMode, countryTenants, tenantColors, visibleCountryTenants, toggleCountryTenant, loadCountryOverlays, clearCountryOverlays } = useCountryMode();
-const { hierarchyPanelOpen, layersPanelOpen, hierarchyEditorOpen, resizeMap } = useTileInspector();
+const {
+  hierarchyPanelOpen,
+  layersPanelOpen,
+  hierarchyEditorOpen,
+  resizeMap,
+  selectedTenantId,
+  tenantList,
+  currentTenant,
+  openAddTenantWizard,
+} = useTileInspector();
+
+const CC_COLORS: Record<string, string> = {
+  NG: '#16a34a',
+  KE: '#2563eb',
+  UG: '#7c3aed',
+  RW: '#db2777',
+  LR: '#ea580c',
+  IN: '#f59e0b',
+  CF: '#64748b',
+};
+
+const groupedTenants = computed(() => {
+  const groups: Record<string, TenantConfig[]> = {};
+  for (const t of tenantList.value) {
+    if (!groups[t.countryCode]) groups[t.countryCode] = [];
+    groups[t.countryCode].push(t);
+  }
+  return Object.entries(groups)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([code, items]) => ({ label: code, items }));
+});
+
+function ccColor(code: string): string {
+  return CC_COLORS[code] ?? '#64748b';
+}
 
 watch(hierarchyEditorOpen, () => {
   setTimeout(() => resizeMap(), 280);
@@ -101,6 +137,15 @@ const treeNodes = computed<TreeNode[]>(() => {
   }));
 });
 
+function findInTree(children: any[], pcode: string): any {
+  for (const child of children ?? []) {
+    if ((child.pcode ?? child.zone_pcode) === pcode) return child;
+    const found = findInTree(child.children ?? [], pcode);
+    if (found) return found;
+  }
+  return null;
+}
+
 function onNodeSelect(node: TreeNode) {
   const d = node.data as { type: string; pcode: string; name: string };
   if (d.type === 'state') {
@@ -110,13 +155,16 @@ function onNodeSelect(node: TreeNode) {
   } else if (d.type === 'zone') {
     highlightBoundary({ pcode: d.pcode, level: 'zone' });
   } else {
+    // leaf boundary node — may be an ungrouped LGA or a node deep in the children tree
     const state = boundaryHierarchy.value?.states.find((s) =>
-      s.lgas.some((l) => l.pcode === d.pcode),
+      s.lgas.some((l) => l.pcode === d.pcode) ||
+      findInTree(s.children, d.pcode) != null,
     );
     highlightBoundary({ pcode: d.pcode, level: 'lga', name: d.name });
     if (state) {
-      const lga = state.lgas.find((l) => l.pcode === d.pcode);
-      if (lga) flyToHierarchyItem(state, lga);
+      const item = state.lgas.find((l) => l.pcode === d.pcode)
+                ?? findInTree(state.children, d.pcode);
+      if (item) flyToHierarchyItem(state, item);
     }
   }
 }
@@ -135,13 +183,57 @@ async function toggleMode() {
 <template>
   <div class="absolute top-2 left-2 z-20 flex flex-col gap-1.5 max-h-[calc(100vh-16px)] overflow-y-auto">
 
-    <!-- ── Country row (button + tenant tags inline) ── -->
+    <!-- ── Row 1: Country + tenant selector (+ multi-country tags when Country mode on) ── -->
     <div class="flex flex-wrap items-center gap-1.5">
       <button class="map-btn" :class="{ 'map-btn--active': isCountryMode }" @click="toggleMode">
         <i class="pi pi-globe" style="font-size:10px"></i>
         Country
         <span class="map-btn-chevron">{{ isCountryMode ? '▾' : '▸' }}</span>
       </button>
+
+      <Select
+        v-model="selectedTenantId"
+        :options="groupedTenants"
+        optionGroupLabel="label"
+        optionGroupChildren="items"
+        optionValue="id"
+        :optionLabel="(t: TenantConfig) => t.name"
+        class="tenant-map-select"
+        :pt="{ root: { class: 'min-w-[10.5rem] max-w-[240px]' } }"
+        title="Active program / tenant"
+      >
+        <template #value="{ value }">
+          <template v-if="value">
+            <div class="flex items-center gap-1.5 py-0.5">
+              <span
+                class="inline-flex items-center justify-center rounded px-1 py-0.5 text-[9px] font-bold text-white leading-none"
+                :style="{ backgroundColor: ccColor(currentTenant.countryCode) }"
+              >{{ currentTenant.countryCode }}</span>
+              <span class="text-xs text-slate-800 truncate max-w-[11rem]">{{ currentTenant.name }}</span>
+            </div>
+          </template>
+          <span v-else class="text-xs text-slate-400">Program…</span>
+        </template>
+        <template #optiongroup="{ option: group }">
+          <div class="flex items-center gap-2 px-1 py-0.5">
+            <span
+              class="inline-flex items-center justify-center rounded px-1.5 py-0.5 text-[10px] font-bold text-white leading-none"
+              :style="{ backgroundColor: ccColor(group.label) }"
+            >{{ group.label }}</span>
+            <span class="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+              {{ group.items.length }} tenant{{ group.items.length !== 1 ? 's' : '' }}
+            </span>
+          </div>
+        </template>
+        <template #option="{ option }">
+          <div class="flex items-center gap-2">
+            <span
+              class="inline-flex items-center justify-center rounded px-1.5 py-0.5 text-[10px] font-medium text-slate-500 bg-slate-100 leading-none tabular-nums min-w-[20px]"
+            >{{ option.id }}</span>
+            <span class="text-xs text-slate-700 truncate">{{ option.name }}</span>
+          </div>
+        </template>
+      </Select>
 
       <TransitionGroup name="tag" tag="div" class="flex flex-row flex-wrap items-center gap-1">
         <button
@@ -160,26 +252,56 @@ async function toggleMode() {
       </TransitionGroup>
     </div>
 
-    <!-- ── Geo Hierarchy + Layers row ── -->
+    <!-- ── Row 2: Add tenant + Geo Hierarchy / Layers / Hierarchy Editor ── -->
     <div class="flex flex-wrap items-center gap-1.5">
-      <button class="map-btn" :class="{ 'map-btn--active': hierarchyPanelOpen }"
-              @click="hierarchyPanelOpen = !hierarchyPanelOpen; layersPanelOpen = false">
+      <button
+        type="button"
+        class="map-btn map-btn--emphasis"
+        title="Add a new tenant"
+        @click="openAddTenantWizard"
+      >
+        <i class="pi pi-plus-circle" style="font-size:10px"></i>
+        Add tenant
+      </button>
+      <button
+        class="map-btn"
+        :class="{ 'map-btn--active': hierarchyPanelOpen }"
+        @click="
+          hierarchyPanelOpen = !hierarchyPanelOpen;
+          layersPanelOpen = false;
+          hierarchyEditorOpen = false;
+        "
+      >
         <i class="pi pi-sitemap" style="font-size:10px"></i>
         Geo Hierarchy
         <span class="map-btn-chevron">{{ hierarchyPanelOpen ? '▾' : '▸' }}</span>
       </button>
-      <button class="map-btn" :class="{ 'map-btn--active': layersPanelOpen }"
-              @click="layersPanelOpen = !layersPanelOpen; hierarchyPanelOpen = false">
+      <button
+        class="map-btn"
+        :class="{ 'map-btn--active': layersPanelOpen }"
+        @click="
+          layersPanelOpen = !layersPanelOpen;
+          hierarchyPanelOpen = false;
+          hierarchyEditorOpen = false;
+        "
+      >
         <svg style="width:12px;height:10px;flex-shrink:0" viewBox="0 0 14 11" fill="currentColor">
-          <rect y="0"   width="14" height="2.5" rx="1"/>
-          <rect y="4.2" width="14" height="2.5" rx="1"/>
-          <rect y="8.5" width="14" height="2.5" rx="1"/>
+          <rect y="0" width="14" height="2.5" rx="1" />
+          <rect y="4.2" width="14" height="2.5" rx="1" />
+          <rect y="8.5" width="14" height="2.5" rx="1" />
         </svg>
         Layers
         <span class="map-btn-chevron">{{ layersPanelOpen ? '▾' : '▸' }}</span>
       </button>
-      <button class="map-btn" :class="{ 'map-btn--active': hierarchyEditorOpen }"
-              @click="hierarchyEditorOpen = !hierarchyEditorOpen; hierarchyPanelOpen = false; layersPanelOpen = false">
+      <button
+        class="map-btn"
+        :class="{ 'map-btn--active': hierarchyEditorOpen }"
+        @click="
+          hierarchyEditorOpen = !hierarchyEditorOpen;
+          hierarchyPanelOpen = false;
+          layersPanelOpen = false;
+        "
+      >
         <i class="pi pi-pen-to-square" style="font-size:10px"></i>
         Hierarchy Editor
         <span class="map-btn-chevron">{{ hierarchyEditorOpen ? '▾' : '▸' }}</span>
@@ -207,18 +329,23 @@ async function toggleMode() {
               class="w-full !text-xs !border-0 !p-0"
             >
               <template #default="{ node }">
-                <span class="flex items-center gap-1">
+                <span class="flex items-center gap-1.5 min-w-0 w-full">
                   <span
                     v-if="node.data.color"
                     class="inline-block w-2 h-2 rounded-full flex-shrink-0"
                     :style="{ background: node.data.color }"
-                  ></span>
-                  <Tag
-                    v-if="node.data.level_label"
-                    severity="secondary"
-                    class="!text-[9px] !py-0 !px-1 flex-shrink-0"
-                  >{{ node.data.level_label }}</Tag>
-                  <span v-html="highlight(node.data.name, boundarySearch)"></span>
+                  />
+                  <span class="flex flex-col min-w-0 flex-1 leading-tight">
+                    <span class="truncate text-xs font-medium text-slate-800" v-html="highlight(node.data.name, boundarySearch)" />
+                    <span class="flex items-center gap-1 mt-0.5">
+                      <Tag
+                        v-if="node.data.level_label"
+                        severity="secondary"
+                        class="!text-[8px] !py-0 !px-1 flex-shrink-0"
+                      >{{ node.data.level_label }}</Tag>
+                      <span class="text-[9px] text-slate-400 font-mono truncate">{{ node.data.pcode }}</span>
+                    </span>
+                  </span>
                 </span>
               </template>
             </Tree>
@@ -316,6 +443,24 @@ async function toggleMode() {
 }
 .map-btn--active:hover {
   background: #dbeafe;
+}
+.map-btn--emphasis {
+  background: #ecfdf5;
+  color: #047857;
+  box-shadow: 0 1px 3px rgba(16, 185, 129, 0.2), 0 0 0 1px rgba(16, 185, 129, 0.35);
+}
+.map-btn--emphasis:hover {
+  background: #d1fae5;
+}
+.tenant-map-select :deep(.p-select) {
+  font-size: 11px;
+  border-radius: 8px;
+  border: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16), 0 0 0 1px rgba(0, 0, 0, 0.06);
+  background: #fff;
+}
+.tenant-map-select :deep(.p-select-label) {
+  padding: 6px 10px;
 }
 .map-btn-chevron {
   font-size: 9px;
