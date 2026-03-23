@@ -265,6 +265,8 @@ FROM seq_cte, geom_metrics
 RETURNING *
 ```
 
+**Implementation note:** In `admin-geo-hierarchy.lua`, the `seq_cte` `WHERE` clause is built from a **scoped predicate** (parent scope + `tenant_id` as needed). The live code avoids duplicating `AND tenant_id = $1` in the same subquery when that would bind the `$1` placeholder twice (Postgres error). The illustrative SQL above may still show `tenant_id = $1` for clarity.
+
 ---
 
 ### PUT /admin/geo-hierarchy/nodes/:id

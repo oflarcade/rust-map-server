@@ -433,7 +433,7 @@ local function create_node()
                     CAST(REGEXP_REPLACE(pcode, '^.*-]] .. level_code .. [[0*', '') AS INTEGER)
                 ), 0) + 1 AS seq
                 FROM geo_hierarchy_nodes
-                WHERE %s AND tenant_id = $1
+                WHERE %s
                   AND pcode ~ ('.*-]] .. level_code .. [[\d+$')
             ),
             geom_cte AS (
@@ -469,7 +469,7 @@ local function create_node()
                     CAST(REGEXP_REPLACE(pcode, '^.*-]] .. level_code .. [[0*', '') AS INTEGER)
                 ), 0) + 1 AS seq
                 FROM geo_hierarchy_nodes
-                WHERE %s AND tenant_id = $1
+                WHERE %s
                   AND pcode ~ ('.*-]] .. level_code .. [[\d+$')
             )
             INSERT INTO geo_hierarchy_nodes(tenant_id, parent_id, state_pcode, level_id, pcode, name, color)

@@ -18,6 +18,7 @@ const {
   assignSelectedToNode,
   focusedStatePcode,
   activateState,
+  addStateToHierarchy,
   showCountryRoot,
   adm2Label,
   adm2Short,
@@ -87,8 +88,9 @@ const panelTitle = computed(() =>
   showCountryRoot.value ? `${countryName.value} Geo Tree` : `${currentTenant.value.name} Geo Tree`,
 );
 
-const expandedStates = reactive(new Set<string>());
-const expandedLgas   = reactive(new Set<string>());
+const expandedStates  = reactive(new Set<string>());
+const expandedLgas    = reactive(new Set<string>());
+const buildingStates  = reactive(new Set<string>()); // states currently auto-creating nodes
 const searchQ = ref('');
 
 // Flat pcode → info map covering adm2 AND adm3+ children (for assign label + select-all)
@@ -134,9 +136,15 @@ function toggleState(pcode: string, ev?: Event) {
   else expandedStates.add(pcode);
 }
 
-function onStateRowClick(pcode: string) {
-  activateState(pcode);   // adds to custom tree + sets focus
+async function onStateRowClick(pcode: string) {
   expandedStates.add(pcode);
+  if (buildingStates.has(pcode)) return; // already in progress
+  buildingStates.add(pcode);
+  try {
+    await addStateToHierarchy(pcode); // API call + activates in custom tree
+  } finally {
+    buildingStates.delete(pcode);
+  }
 }
 
 const targetNodeName = computed(() => {
@@ -239,9 +247,14 @@ async function doAssign() {
             <button
               type="button"
               class="flex-1 flex items-center gap-1.5 px-1 pr-3 py-1.5 text-left min-w-0"
-              :title="'Add this state to the custom tree'"
+              :title="buildingStates.has(state.pcode) ? 'Building hierarchy…' : 'Add to geo hierarchy'"
+              :disabled="buildingStates.has(state.pcode)"
               @click="onStateRowClick(state.pcode)"
             >
+              <i
+                v-if="buildingStates.has(state.pcode)"
+                class="pi pi-spin pi-spinner text-[9px] text-indigo-400 shrink-0"
+              />
               <span class="truncate">{{ state.name }}</span>
               <span class="text-[9px] text-slate-400 italic shrink-0">{{ adm1Label }}</span>
               <span class="ml-auto text-[10px] text-slate-400 font-normal shrink-0">{{ state.pcode }}</span>

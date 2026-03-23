@@ -24,6 +24,7 @@ const {
   targetNodeId,
   focusedStatePcode,
   activeStatePcodes,
+  deactivateState,
   showCountryRoot,
   isMultiStateTenant,
   toggleCountryRoot,
@@ -93,6 +94,18 @@ function openEdit(node: GeoNode, statePcode: string) {
 
 function closeDialog() {
   showDialog.value = false;
+}
+
+async function removeState(pcode: string, name: string) {
+  const stateNodes = geoNodes.value.filter(n => n.state_pcode === pcode);
+  if (stateNodes.length > 0) {
+    const rootNodes = stateNodes.filter(n => n.parent_id == null);
+    if (!confirm(`Remove "${name}" from the geo hierarchy?\nThis will permanently delete ${stateNodes.length} node(s) and all their children.`)) return;
+    for (const node of rootNodes) {
+      await deleteNode(node.id).catch(() => {});
+    }
+  }
+  deactivateState(pcode);
 }
 
 async function removeNode(node: GeoNode) {
@@ -422,6 +435,16 @@ const stateGroups = computed<StateGroup[]>(() => {
               :disabled="selectionMode === 'selecting'"
               @click="openCreate(sg.pcode, null)"
             />
+            <button
+              v-if="!deleteSelectMode"
+              class="w-5 h-5 flex items-center justify-center rounded text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors shrink-0"
+              :title="geoNodes.filter(n => n.state_pcode === sg.pcode).length > 0
+                ? `Delete all nodes for ${sg.name} and remove from geo hierarchy`
+                : `Dismiss ${sg.name} from this view`"
+              @click.stop="removeState(sg.pcode, sg.name)"
+            >
+              <i class="pi pi-times text-[9px]" />
+            </button>
           </div>
 
           <!-- Flat node + LGA rows -->

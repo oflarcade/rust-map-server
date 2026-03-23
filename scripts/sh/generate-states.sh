@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/opt/homebrew/bin/bash
 #
 # generate-states.sh - Generate PMTiles for states within a country on macOS/Linux
 #

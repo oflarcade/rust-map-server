@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed } from 'vue';
 import { DEFAULT_PROXY_URL, normalizeBaseUrl } from '../config/urls';
 import { useTileInspector } from '../composables/useTileInspector';
 import Tree from 'primevue/tree';
@@ -13,7 +13,7 @@ const emit = defineEmits<{
   (e: 'created'): void;
 }>();
 
-const { reloadTenantList, selectedTenantId } = useTileInspector();
+const { reloadTenantList, selectedTenantId, hierarchyEditorOpen } = useTileInspector();
 const BASE = normalizeBaseUrl(DEFAULT_PROXY_URL);
 
 const COUNTRY_OPTIONS = [
@@ -26,22 +26,44 @@ const COUNTRY_OPTIONS = [
   { label: 'Central African Republic (CF)', value: 'CF' },
 ];
 
-const SOURCE_HINTS: Record<string, { tile: string; boundary: string }> = {
-  KE: { tile: 'kenya-detailed',                      boundary: 'kenya-boundaries' },
-  UG: { tile: 'uganda-detailed',                     boundary: 'uganda-boundaries' },
-  NG: { tile: 'nigeria-<state>',                     boundary: 'nigeria-<state>-boundaries' },
-  LR: { tile: 'liberia-detailed',                    boundary: 'liberia-boundaries' },
-  IN: { tile: 'india-<state>',                       boundary: 'india-boundaries' },
-  RW: { tile: 'rwanda-detailed',                     boundary: 'rwanda-boundaries' },
-  CF: { tile: 'central-african-republic-detailed',   boundary: 'central-african-republic-boundaries' },
+const COUNTRY_SLUG: Record<string, string> = {
+  KE: 'kenya', UG: 'uganda', LR: 'liberia', RW: 'rwanda',
+  CF: 'central-african-republic', IN: 'india', NG: 'nigeria',
 };
 
 // ── Fields ──────────────────────────────────────────────────────────────────
-const tenantId       = ref('');
-const countryCode    = ref('');
-const tenantName     = ref('');
-const tileSource     = ref('');
-const boundarySource = ref('');
+const tenantId    = ref('');
+const countryCode = ref('');
+const tenantName  = ref('');
+
+// ── Auto-derived sources ─────────────────────────────────────────────────────
+const showAdvanced     = ref(false);
+const tileOverride     = ref('');
+const boundaryOverride = ref('');
+
+const derivedSources = computed(() => {
+  const cc = countryCode.value;
+  if (!cc) return { tile: '', boundary: '' };
+  const slug = COUNTRY_SLUG[cc] ?? cc.toLowerCase();
+
+  const active = states.value.filter(s => {
+    const k = selectionKeys.value[s.pcode];
+    return k && (k.checked || k.partialChecked);
+  });
+
+  if (cc === 'NG' && active.length > 0) {
+    const stateSlug = active.map(s => s.name.toLowerCase().replace(/\s+/g, '-')).join('-');
+    return { tile: `nigeria-${stateSlug}`, boundary: `nigeria-${stateSlug}-boundaries` };
+  }
+  if (cc === 'IN' && active.length > 0) {
+    const name = active[0].name.toLowerCase().replace(/\s+/g, '');
+    return { tile: `india-${name}`, boundary: 'india-boundaries' };
+  }
+  return { tile: `${slug}-detailed`, boundary: `${slug}-boundaries` };
+});
+
+const tileSource     = computed(() => tileOverride.value.trim()     || derivedSources.value.tile);
+const boundarySource = computed(() => boundaryOverride.value.trim() || derivedSources.value.boundary);
 
 // ── Tenant ID validation ─────────────────────────────────────────────────────
 const idValidating = ref(false);
@@ -76,11 +98,11 @@ async function validateId() {
   }
 }
 
-// ── Country → auto-fill sources ──────────────────────────────────────────────
+// ── Country change ────────────────────────────────────────────────────────────
 function onCountryChange() {
-  const hint = SOURCE_HINTS[countryCode.value];
-  tileSource.value     = hint?.tile     ?? '';
-  boundarySource.value = hint?.boundary ?? '';
+  tileOverride.value     = '';
+  boundaryOverride.value = '';
+  showAdvanced.value     = false;
   loadStates();
 }
 
@@ -170,12 +192,13 @@ function clearAll() {
 // ── Submit ───────────────────────────────────────────────────────────────────
 const saving   = ref(false);
 const errorMsg = ref('');
+const created  = ref(false);
 
 const canCreate = computed(() =>
   idValid.value &&
   countryCode.value &&
   tenantName.value.trim() &&
-  tileSource.value.trim()
+  derivedSources.value.tile
 );
 
 async function createTenant() {
@@ -189,8 +212,8 @@ async function createTenant() {
         tenant_id:       Number(tenantId.value),
         country_code:    countryCode.value,
         country_name:    tenantName.value.trim(),
-        tile_source:     tileSource.value.trim(),
-        boundary_source: boundarySource.value.trim(),
+        tile_source:     tileSource.value,
+        boundary_source: boundarySource.value,
       }),
     });
     if (!res.ok) {
@@ -209,12 +232,17 @@ async function createTenant() {
     await reloadTenantList();
     selectedTenantId.value = tenantId.value;
     emit('created');
-    emit('close');
+    created.value = true;
   } catch (e: any) {
     errorMsg.value = e.message ?? 'Failed to create tenant';
   } finally {
     saving.value = false;
   }
+}
+
+function openHierarchyEditor() {
+  hierarchyEditorOpen.value = true;
+  emit('close');
 }
 </script>
 
@@ -287,17 +315,35 @@ async function createTenant() {
           <InputText v-model="tenantName" placeholder="e.g. Bridge Tanzania" class="w-full !text-sm" />
         </div>
 
-        <!-- Tile Source -->
-        <div class="field-group">
-          <label class="field-label">Tile source</label>
-          <InputText v-model="tileSource" placeholder="e.g. kenya-detailed" class="w-full !text-sm" />
+        <!-- Auto-derived sources preview -->
+        <div v-if="derivedSources.tile" class="field-group">
+          <div class="flex items-center justify-between">
+            <label class="field-label mb-0">Sources (auto)</label>
+            <button
+              type="button"
+              class="text-[10px] text-slate-400 hover:text-slate-600 transition-colors"
+              @click="showAdvanced = !showAdvanced"
+            >
+              {{ showAdvanced ? 'Hide' : 'Override' }}
+            </button>
+          </div>
+          <div class="bg-slate-50 rounded px-2 py-1.5 text-[11px] font-mono text-slate-600 leading-relaxed border border-slate-100">
+            <div>tiles: {{ tileSource }}</div>
+            <div>bounds: {{ boundarySource }}</div>
+          </div>
         </div>
 
-        <!-- Boundary Source -->
-        <div class="field-group">
-          <label class="field-label">Boundary source</label>
-          <InputText v-model="boundarySource" placeholder="e.g. kenya-boundaries" class="w-full !text-sm" />
-        </div>
+        <!-- Advanced override (hidden by default) -->
+        <template v-if="showAdvanced">
+          <div class="field-group">
+            <label class="field-label">Tile source override</label>
+            <InputText v-model="tileOverride" :placeholder="derivedSources.tile" class="w-full !text-sm" />
+          </div>
+          <div class="field-group">
+            <label class="field-label">Boundary source override</label>
+            <InputText v-model="boundaryOverride" :placeholder="derivedSources.boundary" class="w-full !text-sm" />
+          </div>
+        </template>
       </div>
 
       <!-- RIGHT: state/LGA tree -->
@@ -346,18 +392,33 @@ async function createTenant() {
 
     <!-- Footer -->
     <div class="atp-footer">
-      <p v-if="errorMsg" class="text-xs text-red-500 flex-1">{{ errorMsg }}</p>
-      <span class="flex-1" />
-      <Button label="Cancel" variant="outlined" size="small" @click="emit('close')" />
-      <Button
-        label="Create Tenant"
-        icon="pi pi-check"
-        severity="success"
-        size="small"
-        :loading="saving"
-        :disabled="!canCreate"
-        @click="createTenant"
-      />
+      <template v-if="created">
+        <div class="flex items-center gap-1.5 text-green-700 text-xs flex-1">
+          <i class="pi pi-check-circle" />
+          Tenant {{ tenantId }} created
+        </div>
+        <Button label="Done" variant="outlined" size="small" @click="emit('close')" />
+        <Button
+          label="Set up hierarchy →"
+          severity="secondary"
+          size="small"
+          @click="openHierarchyEditor"
+        />
+      </template>
+      <template v-else>
+        <p v-if="errorMsg" class="text-xs text-red-500 flex-1">{{ errorMsg }}</p>
+        <span class="flex-1" />
+        <Button label="Cancel" variant="outlined" size="small" @click="emit('close')" />
+        <Button
+          label="Create Tenant"
+          icon="pi pi-check"
+          severity="success"
+          size="small"
+          :loading="saving"
+          :disabled="!canCreate"
+          @click="createTenant"
+        />
+      </template>
     </div>
   </div>
 </template>

@@ -33,6 +33,8 @@ const selectionMode           = ref<'idle' | 'selecting'>('idle');
 const focusedStatePcode       = ref<string | null>(null);
 /** States manually activated by clicking in the left panel (shown in right custom tree). */
 const manualActiveStatePcodes = ref<Set<string>>(new Set());
+/** States explicitly dismissed by the user — hidden even if auto-active due to existing nodes. */
+const suppressedStatePcodes   = ref<Set<string>>(new Set());
 /** Whether country is the root of the custom tree (always true for multi-state tenants). */
 const showCountryRoot    = ref(false);
 const isMultiStateTenant = ref(false);
@@ -137,18 +139,66 @@ export function useGeoHierarchyEditor() {
     return s;
   });
 
-  /** All states visible in the custom tree right panel (auto + manually activated). */
+  /** All states visible in the custom tree right panel (auto + manually activated, minus suppressed). */
   const activeStatePcodes = computed<Set<string>>(() => {
     const combined = new Set(autoActiveStatePcodes.value);
     for (const p of manualActiveStatePcodes.value) combined.add(p);
+    for (const p of suppressedStatePcodes.value) combined.delete(p);
     return combined;
   });
 
   function activateState(pcode: string) {
+    // Un-suppress if previously dismissed
+    const sup = new Set(suppressedStatePcodes.value);
+    sup.delete(pcode);
+    suppressedStatePcodes.value = sup;
     const s = new Set(manualActiveStatePcodes.value);
     s.add(pcode);
     manualActiveStatePcodes.value = s;
     focusedStatePcode.value = pcode;
+  }
+
+  /**
+   * Called when the user explicitly clicks a state/county in the left panel.
+   * If the state has no existing nodes, auto-creates one geo_hierarchy_node per
+   * adm2 sub-unit (equivalent to "+Sub-Units → select all → Assign").
+   * This commits the county to the geo hierarchy with a real API call so the
+   * Geo Hierarchy panel reflects it immediately.
+   */
+  async function addStateToHierarchy(statePcode: string) {
+    activateState(statePcode); // immediate UI activation
+
+    // If nodes already exist for this state, just activate (don't recreate)
+    if (geoNodes.value.some(n => n.state_pcode === statePcode)) return;
+
+    const state = rawHierarchy.value?.states?.find((s: any) => s.pcode === statePcode);
+    const lgas: any[] = (state as any)?.lgas ?? [];
+    if (!lgas.length) return;
+
+    // Collect all adm2 pcodes + adm3+ children (sectors, wards, etc.)
+    const allPcodes = new Set<string>();
+    for (const lga of lgas) {
+      allPcodes.add(lga.pcode);
+      for (const child of (lga.children ?? []) as any[]) allPcodes.add(child.pcode);
+    }
+
+    // Temporarily set selectedRawPcodes and use assignAreasToParent machinery
+    selectedRawPcodes.value = allPcodes;
+    try {
+      await assignAreasToParent(statePcode, null);
+    } finally {
+      selectedRawPcodes.value = new Set();
+    }
+  }
+
+  function deactivateState(pcode: string) {
+    const sup = new Set(suppressedStatePcodes.value);
+    sup.add(pcode);
+    suppressedStatePcodes.value = sup;
+    const m = new Set(manualActiveStatePcodes.value);
+    m.delete(pcode);
+    manualActiveStatePcodes.value = m;
+    if (focusedStatePcode.value === pcode) focusedStatePcode.value = null;
   }
 
   function invalidate() {
@@ -352,20 +402,29 @@ export function useGeoHierarchyEditor() {
     exitSelectionMode();
     focusedStatePcode.value = null;
     manualActiveStatePcodes.value = new Set();
+    suppressedStatePcodes.value   = new Set();
     showCountryRoot.value    = false;
     isMultiStateTenant.value = false;
   });
 
-  // When raw hierarchy loads: auto-activate states + detect multi-state
+  // When raw hierarchy loads: detect multi-state + auto-activate single-state tenants only.
+  // Multi-state tenants (2+ states) only show states that already have nodes (autoActiveStatePcodes)
+  // or were explicitly clicked in the left panel. This prevents 15 empty county rows cluttering
+  // the custom tree for tenants like Bridge Liberia before any hierarchy is built.
   watch(rawHierarchy, (hierarchy) => {
     if (!hierarchy?.states?.length) return;
-    const s = new Set(manualActiveStatePcodes.value);
-    for (const state of hierarchy.states) s.add(state.pcode);
-    manualActiveStatePcodes.value = s;
 
     const multi = hierarchy.states.length >= 2;
     isMultiStateTenant.value = multi;
-    if (multi) showCountryRoot.value = true;  // locked on for country-level tenants
+
+    if (multi) {
+      showCountryRoot.value = true; // locked on for country-level tenants
+    } else {
+      // Single-state tenant: auto-activate the one state so the editor isn't empty
+      const s = new Set(manualActiveStatePcodes.value);
+      s.add(hierarchy.states[0].pcode);
+      manualActiveStatePcodes.value = s;
+    }
   });
 
   function toggleCountryRoot() {
@@ -390,6 +449,8 @@ export function useGeoHierarchyEditor() {
     focusRawState,
     activeStatePcodes,
     activateState,
+    addStateToHierarchy,
+    deactivateState,
     showCountryRoot,
     isMultiStateTenant,
     toggleCountryRoot,

@@ -10,6 +10,8 @@ local M = {}
 -- unioned with DISTINCT adm_features.level_label (so operators see INEC types before import).
 local CANONICAL_LEVEL_LABELS = {
     NG = {
+        "Constituency",
+        "District",
         "Emirate",
         "Federal Constituency",
         "Local Government Area",
@@ -37,7 +39,10 @@ local CANONICAL_LEVEL_LABELS = {
         "District",
     },
     CF = {
+        "Arrondissement-District Sénatorial",
         "Commune",
+        "Département",
+        "Région",
         "Sous-préfecture",
     },
     IN = {

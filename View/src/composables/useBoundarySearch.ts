@@ -15,27 +15,51 @@ export function useBoundarySearch() {
     queryFn: () => fetchHierarchy(selectedTenantId.value),
   });
 
+  function matchesInTree(children: any[], q: string): boolean {
+    for (const child of children ?? []) {
+      const name  = (child.name  ?? child.zone_name  ?? '').toLowerCase();
+      const pcode = (child.pcode ?? child.zone_pcode ?? '').toLowerCase();
+      if (name.includes(q) || pcode.includes(q)) return true;
+      if (matchesInTree(child.children ?? [], q)) return true;
+    }
+    return false;
+  }
+
+  // If any state has custom geo_hierarchy_nodes children, only show states
+  // that have children — states without custom hierarchy are excluded from the panel.
+  const activeStates = computed<HierarchyState[]>(() => {
+    const data = boundaryHierarchy.value;
+    if (!data) return [];
+    const hasCustomHierarchy = data.states.some(s => (s.children ?? []).length > 0);
+    return hasCustomHierarchy
+      ? data.states.filter(s => (s.children ?? []).length > 0)
+      : data.states;
+  });
+
   const filteredHierarchy = computed<HierarchyData | null>(() => {
     const data = boundaryHierarchy.value;
     if (!data) return null;
 
     const q = boundarySearch.value.toLowerCase().trim();
-    if (!q) return data;
+    if (!q) return { ...data, states: activeStates.value };
 
-    const matchedStates = data.states
+    const matchedStates = activeStates.value
       .map((state) => {
         const stateMatches =
           state.name.toLowerCase().includes(q) ||
           state.pcode.toLowerCase().includes(q);
+        if (stateMatches) return { ...state };
 
         const matchingLgas = state.lgas.filter(
           (lga) =>
             lga.name.toLowerCase().includes(q) ||
             lga.pcode.toLowerCase().includes(q),
         );
-
-        if (stateMatches) return { ...state };
         if (matchingLgas.length > 0) return { ...state, lgas: matchingLgas };
+
+        // Search geo_hierarchy_nodes children tree (Senatorial Districts, Sectors, etc.)
+        if (matchesInTree(state.children, q)) return { ...state };
+
         return null;
       })
       .filter((s): s is HierarchyState => s !== null);
@@ -44,23 +68,21 @@ export function useBoundarySearch() {
   });
 
   const filteredStateNames = computed(() => {
-    const data = boundaryHierarchy.value;
-    if (!data) return [];
+    if (!boundaryHierarchy.value) return [];
     const q = boundarySearch.value.toLowerCase().trim();
     if (!q) {
-      return data.states.map((s) => s.name).sort((a, b) => a.localeCompare(b));
+      return activeStates.value.map((s) => s.name).sort((a, b) => a.localeCompare(b));
     }
-    return data.states
+    return activeStates.value
       .filter((s) => s.name.toLowerCase().includes(q) || s.pcode.toLowerCase().includes(q))
       .map((s) => s.name)
       .sort((a, b) => a.localeCompare(b));
   });
 
   const filteredLGANames = computed(() => {
-    const data = boundaryHierarchy.value;
-    if (!data) return [];
+    if (!boundaryHierarchy.value) return [];
     const q = boundarySearch.value.toLowerCase().trim();
-    const allLgas = data.states.flatMap((s) => s.lgas);
+    const allLgas = activeStates.value.flatMap((s) => s.lgas);
     if (!q) {
       return allLgas.map((l) => l.name).sort((a, b) => a.localeCompare(b));
     }
