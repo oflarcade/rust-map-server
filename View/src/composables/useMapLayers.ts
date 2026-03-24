@@ -6,6 +6,7 @@ import { useTileInspector } from './useTileInspector';
 import type { DataControlRow } from '../types/map';
 import type { BoundarySummary } from '../types/boundary';
 import type { BoundaryFeature } from '../types/geojson';
+import { bboxFromGeometry } from '../utils/bbox';
 
 // Module-level shared state — pre-populated so the Layers panel always has rows
 const dataControls = ref<DataControlRow[]>([
@@ -18,7 +19,7 @@ const dataControls = ref<DataControlRow[]>([
   { id: 'places',     group: 'base', label: 'Places',     layers: ['base-place-label'],  countryLayerPrefixes: ['co-place-'],  visible: true },
   { id: 'zones',             group: 'boundary', label: 'Administrative areas', layers: ['zones-fill', 'zones-outline'],  countryLayerPrefixes: ['co-fill-', 'co-outline-'],      visible: true },
   { id: 'boundary-fill',     group: 'boundary', label: 'Boundary areas',       layers: ['boundary-fill'],                countryLayerPrefixes: ['co-hdx-state-fill'],            visible: true },
-  { id: 'boundary-state',    group: 'boundary', label: 'State lines',          layers: ['boundary-state-line'],          countryLayerPrefixes: ['co-hdx-state-line'],            visible: true },
+  { id: 'boundary-state',    group: 'boundary', label: 'State lines',          layers: ['boundary-state-line', 'state-scope-line'], countryLayerPrefixes: ['co-hdx-state-line'],            visible: true },
   { id: 'boundary-lga',      group: 'boundary', label: 'LGA lines',            layers: ['boundary-lga-line'],            countryLayerPrefixes: ['co-hdx-lga-line'],              visible: true },
   { id: 'boundary-ward',     group: 'boundary', label: 'Ward/Sector lines',    layers: ['ward-outline'],                                                                         visible: true },
   { id: 'boundary-state-label', group: 'boundary', label: 'State labels',      layers: ['boundary-state-label'],         countryLayerPrefixes: ['co-hdx-state-label'],           visible: true },
@@ -36,6 +37,14 @@ const boundarySummary = reactive<BoundarySummary>({
 let allBoundaryFeatures: BoundaryFeature[] = [];
 
 const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
+
+// Standalone function refs — wired up when useMapLayers() is first called from setup().
+// Safe to call from MapLibre event handlers (no injection context required).
+let _updateControlStates: (() => void) | null = null;
+let _initControls: (() => void) | null = null;
+
+export function standaloneUpdateControlStates(): void { _updateControlStates?.(); }
+export function standaloneInitControls(): void { _initControls?.(); }
 
 export function useMapLayers() {
   const { selectedTenantId, getMap } = useTileInspector();
@@ -79,7 +88,7 @@ export function useMapLayers() {
       { id: 'places',     group: 'base', label: 'Places',     layers: ['base-place-label'],  countryLayerPrefixes: ['co-place-'],  visible: true },
       { id: 'zones',      group: 'boundary', label: 'Administrative areas', layers: ['zones-fill', 'zones-outline'], countryLayerPrefixes: ['co-fill-', 'co-outline-'], visible: true },
       { id: 'boundary-fill',         group: 'boundary', label: 'Boundary areas',   layers: ['boundary-fill'],         countryLayerPrefixes: ['co-hdx-state-fill'],  visible: true },
-      { id: 'boundary-state',        group: 'boundary', label: 'State lines',      layers: ['boundary-state-line'],   countryLayerPrefixes: ['co-hdx-state-line'],  visible: true },
+      { id: 'boundary-state',        group: 'boundary', label: 'State lines',      layers: ['boundary-state-line', 'state-scope-line'], countryLayerPrefixes: ['co-hdx-state-line'],  visible: true },
       { id: 'boundary-lga',          group: 'boundary', label: 'LGA lines',        layers: ['boundary-lga-line'],     countryLayerPrefixes: ['co-hdx-lga-line'],    visible: true },
       { id: 'boundary-ward',         group: 'boundary', label: 'Ward/Sector lines',layers: ['ward-outline'],                                                         visible: true },
       { id: 'boundary-state-label',  group: 'boundary', label: 'State labels',     layers: ['boundary-state-label'],  countryLayerPrefixes: ['co-hdx-state-label'], visible: true },
@@ -153,6 +162,9 @@ export function useMapLayers() {
     // Store all features for highlight lookups (state, lga, zone all have pcode)
     allBoundaryFeatures = (geojson.features ?? []) as BoundaryFeature[];
 
+    // True only on first GeoJSON load after map creation (map is recreated on every tenant switch)
+    const isFirstLoad = !map.getSource('zones-overlay');
+
     const zoneFeatures = allBoundaryFeatures.filter(
       (f) => f.properties?.feature_type === 'zone' || f.properties?.feature_type === 'geo_node',
     );
@@ -216,6 +228,57 @@ export function useMapLayers() {
       } as any);
     }
 
+    // ── GeoJSON state-scope outline (fallback for tenants without PMTiles boundary) ──
+    // Renders the state border from PostGIS so the area is always visible when the
+    // tenant's boundary PMTiles doesn't exist yet.
+    const hasPmtilesBoundary = !!map.getLayer('boundary-state-line');
+
+    if (!hasPmtilesBoundary) {
+      const stateFeatures = allBoundaryFeatures.filter(
+        (f) => f.properties?.feature_type === 'state',
+      );
+      const stateFC = { type: 'FeatureCollection', features: stateFeatures };
+
+      if (map.getSource('state-scope-source')) {
+        (map.getSource('state-scope-source') as maplibregl.GeoJSONSource).setData(stateFC as any);
+      } else if (stateFeatures.length > 0) {
+        map.addSource('state-scope-source', { type: 'geojson', data: stateFC as any });
+        map.addLayer({
+          id: 'state-scope-line',
+          type: 'line',
+          source: 'state-scope-source',
+          paint: { 'line-color': '#2563eb', 'line-width': 2.5 },
+        } as any);
+      }
+    }
+
+    // Always fit to state extent on first load (works for PMTiles boundary tenants too)
+    if (isFirstLoad) {
+      const stateFeatures = allBoundaryFeatures.filter(
+        (f) => f.properties?.feature_type === 'state',
+      );
+      if (stateFeatures.length > 0) {
+        const allBounds = new maplibregl.LngLatBounds();
+        let boundsEmpty = true;
+        for (const f of stateFeatures) {
+          if (!f.geometry) continue;
+          const [[minLng, minLat], [maxLng, maxLat]] = bboxFromGeometry(f.geometry);
+          if (Number.isFinite(minLng)) {
+            allBounds.extend([minLng, minLat]);
+            allBounds.extend([maxLng, maxLat]);
+            boundsEmpty = false;
+          }
+        }
+        if (!boundsEmpty) {
+          // Never zoom below the tile source's minzoom — tiles won't exist there (blank map).
+          // e.g. nigeria-borno is z10-14 (old format); fitBounds to full state would go to z7 → blank.
+          const baseSourceSpec = (map.getStyle()?.sources?.['base'] as any);
+          const tileMinZoom: number = typeof baseSourceSpec?.minzoom === 'number' ? baseSourceSpec.minzoom : 0;
+          map.fitBounds(allBounds, { padding: 60, maxZoom: 10, minZoom: tileMinZoom, animate: true });
+        }
+      }
+    }
+
     // Highlight overlay — separate source so we can show any single feature
     if (!map.getSource('highlight-overlay')) {
       map.addSource('highlight-overlay', { type: 'geojson', data: EMPTY_FC as any });
@@ -241,6 +304,10 @@ export function useMapLayers() {
   function getAllBoundaryFeatures(): BoundaryFeature[] {
     return allBoundaryFeatures;
   }
+
+  // Wire up standalone refs on first call from setup()
+  _updateControlStates = updateControlStates;
+  _initControls = initControls;
 
   return {
     dataControls,

@@ -33,8 +33,8 @@ import { buildInspectorStyle, loadMartinTileMetadata } from '../map/inspectorSty
 // Circular ESM imports: these modules import useTileInspector themselves, but calling
 // their exported functions here only happens inside function bodies (never at module-init
 // time), so the ESM live-binding resolution is safe.
-import { useMapInteraction } from './useMapInteraction';
-import { useMapLayers } from './useMapLayers';
+import { useMapInteraction, standaloneInitMapInteractions } from './useMapInteraction';
+import { useMapLayers, standaloneUpdateControlStates, standaloneInitControls } from './useMapLayers';
 
 // ---------------------------------------------------------------------------
 // Exported interfaces — defined in src/types/, re-exported here for backwards compat
@@ -182,6 +182,12 @@ export function useTileInspector() {
       }
     }
 
+    // Clamp: never open below the tile source's minzoom (prevents blank map on z10 tiles)
+    const sourceMinzoom = Number.isFinite(baseMeta?.minzoom) ? (baseMeta.minzoom as number) : 0;
+    if (initialZoom < sourceMinzoom) {
+      initialZoom = sourceMinzoom;
+    }
+
     map = new maplibregl.Map({
       container,
       style,
@@ -196,15 +202,13 @@ export function useTileInspector() {
     });
 
     map.once('load', () => {
-      // useMapInteraction is imported at the top — safe to call here because by the time
-      // map 'load' fires, all ESM modules have been fully initialised.
-      useMapInteraction().initMapInteractions();
-      useMapLayers().initControls();
+      standaloneInitMapInteractions();
+      standaloneInitControls();
     });
 
     map.on('idle', () => {
       currentZoom.value = map!.getZoom();
-      useMapLayers().updateControlStates();
+      standaloneUpdateControlStates();
     });
   }
 

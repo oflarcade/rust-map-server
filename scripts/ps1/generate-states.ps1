@@ -38,7 +38,7 @@ $TempDir = Join-Path $BaseDir "temp"
 $DataSourcesDir = Join-Path $BaseDir "data\sources"
 $BoundsScript = Join-Path $BaseDir "scripts\bounds-from-hdx.py"
 
-$MinZoom = 10
+$MinZoom = 6
 $MaxZoom = 14
 
 # Colors
@@ -102,7 +102,10 @@ if (-not $MemoryMap.ContainsKey($Country)) {
 
 $Layers = $ProfileLayers[$Profile]
 $Memory = $MemoryMap[$Country]
-$HdxAdm1 = Join-Path $BaseDir "data\hdx\${Country}_adm1.geojson"
+$HdxAdm1 = Join-Path $BaseDir "hdx\${Country}_adm1.geojson"
+if (-not (Test-Path $HdxAdm1)) {
+    $HdxAdm1 = Join-Path $BaseDir "data\hdx\${Country}_adm1.geojson"
+}
 $StatesBoundsDir = Join-Path $BaseDir "data\sources\${Country}-states"
 
 # Profile-specific output directories

@@ -13,6 +13,9 @@ import type { TenantConfig } from '../types/tenant';
 
 let inspectorPopup: maplibregl.Popup | null = null;
 
+let _initMapInteractions: (() => void) | null = null;
+export function standaloneInitMapInteractions(): void { _initMapInteractions?.(); }
+
 // ---------------------------------------------------------------------------
 // Internal types
 // ---------------------------------------------------------------------------
@@ -217,6 +220,9 @@ export function useMapInteraction() {
       map.fitBounds(bounds, { padding: 60, maxZoom: 14 });
     }
   }
+
+  // Wire up standalone ref on first call from setup()
+  _initMapInteractions = initMapInteractions;
 
   // -- Return ---------------------------------------------------------------
 

@@ -1,7 +1,7 @@
 # Backend — Map tile server
 
-> **Source:** `rust-map-server` — `CLAUDE.md`, `docs/fe-api-integration.md`.  
-> **Production:** GCP `martin-tileserver`, `us-central1-a`, `35.239.86.115`.
+> **Source:** `rust-map-server` — `CLAUDE.md`, `docs/fe-api-integration.md`, `tileserver/lua/*`, `scripts/ps1/generate-states.ps1`.  
+> **Production:** GCP `martin-tileserver`, `us-central1-a`, `35.224.96.155`.
 
 ## Purpose
 
@@ -45,7 +45,12 @@ flowchart TB
 
 ## Tenant routing
 
-Nginx maps `X-Tenant-ID` → Martin **source name** (e.g. tenant `11` → `nigeria-lagos`). Country extracts often use a `-detailed` suffix; state extracts use `country-state`.
+Nginx maps `X-Tenant-ID` -> Martin **source name** (e.g. tenant `11` -> `nigeria-lagos`), and those source IDs must match Martin catalog IDs (and tenant DB values) exactly.
+
+Naming conventions in current ops:
+- Country base tiles often use `-detailed` (example: `kenya-detailed`).
+- State base tiles use `country-state` (example: `nigeria-jigawa`).
+- Boundary tiles use `*-boundaries` naming (example: `nigeria-jigawa-boundaries`).
 
 ```mermaidjs
 sequenceDiagram
@@ -74,8 +79,8 @@ sequenceDiagram
 |------|-----------|--------|
 | Tiles | `GET /tiles/{z}/{x}/{y}` | Martin PMTiles |
 | Boundary tiles | `GET /boundaries/{z}/{x}/{y}` | Tenant-scoped vector overlay |
-| GeoJSON | `GET /boundaries/geojson?t={tenantId}` | FeatureCollection; `Vary: X-Tenant-ID` |
-| Hierarchy | `GET /boundaries/hierarchy?t={tenantId}` | Tree; cached in `ngx.shared` (24h) |
+| GeoJSON | `GET /boundaries/geojson?t={tenantId}` | FeatureCollection; `Vary: X-Tenant-ID`, `Cache-Control: public, max-age=86400` |
+| Hierarchy | `GET /boundaries/hierarchy?t={tenantId}` | Tree; cached in `ngx.shared` (24h), same tenant-isolation headers |
 | Search | `GET /boundaries/search?q=` | Indexed name search |
 | Region | `GET /region?lat=&lon=` | Point-in-polygon; `ngx.shared` ~1h |
 | Zones admin | `GET/POST/PUT/DELETE /admin/zones` | Invalidates hierarchy cache on write |
@@ -110,12 +115,19 @@ flowchart LR
 
 | File | Responsibility |
 |------|----------------|
-| `boundary-db.lua` | PostGIS queries: geojson, hierarchy, search, region, zones; **`CANONICAL_LEVEL_LABELS`** per country (NG/CF labels merged with DB for level-label picker) |
+| `origin-whitelist.lua` | Origin whitelist/CORS checks before data handlers proceed |
+| `boundary-db.lua` | Tenant/source normalization + PostGIS query layer for geojson/hierarchy/search/region/zones; keeps canonical `level_label` fallback behavior for adm3+ display |
 | `serve-geojson.lua` | `GET /boundaries/geojson` |
 | `serve-hierarchy.lua` | `GET /boundaries/hierarchy` + shared dict cache |
 | `region-lookup.lua` | `GET /region` + point-in-polygon |
 | `admin-zones.lua` | Zone CRUD |
 | `nginx-tenant-proxy.conf` | Maps, CORS, `lua_shared_dict` sizes |
+
+## Operational notes
+
+- Boundary source naming migrated from legacy `-admin` patterns to `-boundaries` for consistency with generated artifacts.
+- A tenant/source mismatch (DB/source map uses old `-admin`, files/catalog expose `-boundaries`) causes boundary 404s even when PMTiles exist.
+- If stale hierarchy/geojson behavior persists after writes, restart nginx container (reload is not enough for shared dict cache).
 
 ## Advanced: geo hierarchy editor (optional)
 

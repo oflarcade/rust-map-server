@@ -34,9 +34,22 @@ Log-Info "Working directory: $BaseDir"
 
 # ── Step 1: Check Java ──────────────────────────────────────────────
 Log-Step "Step 1/5: Checking Java installation..."
+# Ensure Adoptium / common JDK install paths are on PATH for this session
+$adoptiumRoot = "C:\Program Files\Eclipse Adoptium"
+if (Test-Path $adoptiumRoot) {
+    $jdkBin = Get-ChildItem $adoptiumRoot -Directory | Sort-Object Name -Descending | Select-Object -First 1
+    if ($jdkBin) {
+        $env:PATH = "$($jdkBin.FullName)\bin;$env:PATH"
+        $env:JAVA_HOME = $jdkBin.FullName
+    }
+}
 try {
+    # java -version writes to stderr; use Continue to prevent Stop-mode treating it as fatal
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     $javaVersionOutput = & java -version 2>&1 | Select-Object -First 1
-    $javaVersionMatch = [regex]::Match($javaVersionOutput, '"(\d+)')
+    $ErrorActionPreference = $prev
+    $javaVersionMatch = [regex]::Match([string]$javaVersionOutput, '"(\d+)')
     if ($javaVersionMatch.Success) {
         $javaMajor = [int]$javaVersionMatch.Groups[1].Value
         if ($javaMajor -ge 17) {
@@ -46,6 +59,10 @@ try {
             Log-Info "Install with: winget install EclipseAdoptium.Temurin.17.JDK"
             exit 1
         }
+    } else {
+        Log-Error "Java not found. Install Java 17+:"
+        Write-Host "  winget install EclipseAdoptium.Temurin.17.JDK" -ForegroundColor White
+        exit 1
     }
 } catch {
     Log-Error "Java not found. Install Java 17+:"
