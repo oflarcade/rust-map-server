@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Multi-tenant vector map tile server for NewGlobe Education's School Pin Map. Replaces Google Maps (~$350-700/mo) with self-hosted PMTiles + Martin tile server (~$5-15/mo on GCP). Serves OSM-based map tiles + PostGIS-backed admin boundaries with custom zone management to education programs across Africa and India.
 
-**Production:** GCP `martin-tileserver`, zone `us-central1-a`, IP `35.239.86.115`
+**Production:** GCP `martin-tileserver`, zone `us-central1-a`, IP `35.224.96.155` (ephemeral; verify with `gcloud compute instances describe martin-tileserver --zone=us-central1-a --format='get(networkInterfaces[0].accessConfigs[0].natIP)'` before building the View)
 
 ## Architecture
 
@@ -254,8 +254,8 @@ gcloud compute ssh martin-tileserver --zone=us-central1-a --command="
 
 # Build + deploy Vue app (ALWAYS set production env vars)
 cd View
-$env:VITE_PROXY_URL="http://35.239.86.115:8080"
-$env:VITE_MARTIN_URL="http://35.239.86.115:3000"
+$env:VITE_PROXY_URL="http://35.224.96.155:8080"
+$env:VITE_MARTIN_URL="http://35.224.96.155:3000"
 npm run build
 gcloud compute scp --zone=us-central1-a --recurse `
   dist/index.html dist/assets `
@@ -312,8 +312,8 @@ Two views:
 **Build:** Always use production env vars or Chrome blocks requests (Private Network Access):
 ```bash
 cd View
-VITE_PROXY_URL=http://35.239.86.115:8080 VITE_MARTIN_URL=http://35.239.86.115:3000 npm run build
-# Verify: grep -o "localhost:8080\|35.239.86.115" dist/assets/index-*.js | uniq -c
+VITE_PROXY_URL=http://35.224.96.155:8080 VITE_MARTIN_URL=http://35.224.96.155:3000 npm run build
+# Verify: grep -o "localhost:8080\|35.224.96.155" dist/assets/index-*.js | uniq -c
 ```
 
 The tenant selector is in the **sidebar** (BoundaryExplorer.vue), not the top bar.
@@ -364,7 +364,7 @@ The tenant selector is in the **sidebar** (BoundaryExplorer.vue), not the top ba
 | `/boundaries/geojson` returns 404 | Missing HDX or no PostGIS data | Run `import-hdx-to-pg.js` |
 | Hierarchy returns stale data after zone change | ngx.shared not cleared | `docker restart tileserver_nginx_1` |
 | `table index is nil` in serve-hierarchy.lua | Orphaned feature with NULL parent_pcode | Guard: `if l.parent_pcode then` |
-| Vue app "blocked:other" CORS error | Build pointed at localhost | Rebuild with `VITE_PROXY_URL=http://35.239.86.115:8080` |
+| Vue app "blocked:other" CORS error | Build pointed at localhost | Rebuild with `VITE_PROXY_URL=http://35.224.96.155:8080` (use current VM NAT IP) |
 | Tenant switch keeps showing wrong country | Browser cache / race condition | `?t=${tenantId}` on all API URLs; `loadVersion` counter in Vue |
 
 ## Prerequisites

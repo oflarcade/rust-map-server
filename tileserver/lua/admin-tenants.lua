@@ -5,9 +5,10 @@
 --   GET  /admin/tenants  -> list all tenants
 --   POST /admin/tenants  -> create a new tenant
 
-local cjson  = require("cjson.safe")
-local pg     = require("pg-pool")
-local router = require("tenant-router")
+local cjson     = require("cjson.safe")
+local pg        = require("pg-pool")
+local router    = require("tenant-router")
+local normalize = require("tile-source-normalize")
 
 local method = ngx.req.get_method()
 
@@ -69,7 +70,7 @@ local function create_tenant()
     local country_code  = body.country_code
     local country_name  = body.country_name
     local tile_source   = body.tile_source
-    local boundary_source = body.boundary_source
+    local boundary_source = normalize.normalize_boundary_source(body.boundary_source)
     local hdx_prefix    = body.hdx_prefix or ""
 
     if not tenant_id or not country_code or not tile_source then

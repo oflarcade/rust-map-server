@@ -309,7 +309,7 @@ with open('$BOUNDS_FILE') as f:
 print(data['$SLUG']['name'])
 ")
         STATE_GEOJSON="$STATES_BOUNDS_DIR/${SLUG}.json"
-        BOUNDARY_OUTPUT="$BOUNDARIES_DIR/${COUNTRY}-${SLUG}-admin.pmtiles"
+        BOUNDARY_OUTPUT="$BOUNDARIES_DIR/${COUNTRY}-${SLUG}-boundaries.pmtiles"
 
         if [ ! -f "$STATE_GEOJSON" ]; then
             log_warn "No state GeoJSON for $STATE_NAME, skipping boundaries"
@@ -330,7 +330,7 @@ print(data['$SLUG']['name'])
             --coalesce-densest-as-needed \
             --extend-zooms-if-still-dropping \
             --layer=admin \
-            --name="${COUNTRY}-${SLUG}-admin" \
+            --name="${COUNTRY}-${SLUG}-boundaries" \
             --description="Admin boundaries for ${STATE_NAME}, ${COUNTRY}" \
             "$STATE_GEOJSON"
 
@@ -342,7 +342,7 @@ print(data['$SLUG']['name'])
 
     # Combined boundary tiles
     COMBINED_GEOJSON="$STATES_BOUNDS_DIR/combined.json"
-    COMBINED_BOUNDARY="$BOUNDARIES_DIR/${COUNTRY}-states-admin.pmtiles"
+    COMBINED_BOUNDARY="$BOUNDARIES_DIR/${COUNTRY}-states-boundaries.pmtiles"
 
     if [ -f "$COMBINED_GEOJSON" ]; then
         log_info "Generating combined boundary tiles..."
@@ -359,7 +359,7 @@ print(data['$SLUG']['name'])
             --coalesce-densest-as-needed \
             --extend-zooms-if-still-dropping \
             --layer=admin \
-            --name="${COUNTRY}-states-admin" \
+            --name="${COUNTRY}-states-boundaries" \
             --description="Admin boundaries for selected states in ${COUNTRY}" \
             "$COMBINED_GEOJSON"
 
@@ -418,7 +418,7 @@ if command -v tippecanoe &>/dev/null; then
     echo ""
     log_info "Generated [$PROFILE] boundary tiles:"
     for SLUG in "${STATE_SLUGS[@]}"; do
-        FILE="$BOUNDARIES_DIR/${COUNTRY}-${SLUG}-admin.pmtiles"
+        FILE="$BOUNDARIES_DIR/${COUNTRY}-${SLUG}-boundaries.pmtiles"
         if [ -f "$FILE" ]; then
             SIZE=$(du -m "$FILE" | cut -f1)
             echo -e "  \033[32m+ $(basename "$FILE") (${SIZE} MB)\033[0m"

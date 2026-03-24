@@ -281,7 +281,7 @@ if ($hasTippecanoe) {
     foreach ($slug in $StateSlugs) {
         $stateName = $boundsData.$slug.name
         $stateGeojson = Join-Path $StatesBoundsDir "${slug}.json"
-        $boundaryOutput = Join-Path $BoundariesDir "${Country}-${slug}-admin.pmtiles"
+        $boundaryOutput = Join-Path $BoundariesDir "${Country}-${slug}-boundaries.pmtiles"
 
         if (-not (Test-Path $stateGeojson)) {
             Log-Warn "No state GeoJSON for $stateName, skipping boundaries"
@@ -302,7 +302,7 @@ if ($hasTippecanoe) {
             --coalesce-densest-as-needed `
             --extend-zooms-if-still-dropping `
             --layer=admin `
-            --name="${Country}-${slug}-admin" `
+            --name="${Country}-${slug}-boundaries" `
             --description="Admin boundaries for ${stateName}, ${Country}" `
             $stateGeojson
 
@@ -314,7 +314,7 @@ if ($hasTippecanoe) {
 
     # Combined boundary tiles
     $combinedGeojson = Join-Path $StatesBoundsDir "combined.json"
-    $combinedBoundary = Join-Path $BoundariesDir "${Country}-states-admin.pmtiles"
+    $combinedBoundary = Join-Path $BoundariesDir "${Country}-states-boundaries.pmtiles"
 
     if (Test-Path $combinedGeojson) {
         Log-Info "Generating combined boundary tiles..."
@@ -331,7 +331,7 @@ if ($hasTippecanoe) {
             --coalesce-densest-as-needed `
             --extend-zooms-if-still-dropping `
             --layer=admin `
-            --name="${Country}-states-admin" `
+            --name="${Country}-states-boundaries" `
             --description="Admin boundaries for selected states in ${Country}" `
             $combinedGeojson
 
@@ -390,7 +390,7 @@ if ($hasTippecanoe) {
     Write-Host ""
     Log-Info "Generated [$Profile] boundary tiles:"
     foreach ($slug in $StateSlugs) {
-        $file = Join-Path $BoundariesDir "${Country}-${slug}-admin.pmtiles"
+        $file = Join-Path $BoundariesDir "${Country}-${slug}-boundaries.pmtiles"
         if (Test-Path $file) {
             $size = (Get-Item $file).Length / 1MB
             Write-Host ("  + {0} ({1:N1} MB)" -f (Split-Path -Leaf $file), $size) -ForegroundColor Green

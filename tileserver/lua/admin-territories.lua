@@ -16,6 +16,15 @@ local uri       = ngx.var.uri
 -- Extract pcode from DELETE /admin/territories/:pcode
 local del_pcode = uri:match("^/admin/territories/(.+)$")
 
+local function invalidate_caches()
+    local hierarchy_cache = ngx.shared.hierarchy_cache
+    if hierarchy_cache then hierarchy_cache:delete("h:" .. tenant_id) end
+    local region_cache = ngx.shared.region_cache
+    if region_cache then region_cache:flush_all() end
+    -- L2 persistent cache in Postgres must also be cleared.
+    pg.exec("DELETE FROM tenant_cache WHERE tenant_id = $1", {tenant_id})
+end
+
 -- ---------------------------------------------------------------------------
 -- GET /admin/territories
 -- ---------------------------------------------------------------------------
@@ -118,11 +127,26 @@ local function add_territories()
         return
     end
 
+    -- Auto-include parent states for any scoped LGAs so hierarchy has adm1 anchors.
+    local _, err_parent = pg.exec([[
+        INSERT INTO tenant_scope (tenant_id, pcode)
+        SELECT DISTINCT $1, a.parent_pcode
+        FROM adm_features a
+        WHERE a.pcode = ANY($2::text[])
+          AND a.adm_level = 2
+          AND a.parent_pcode IS NOT NULL
+          AND a.country_code = (SELECT country_code FROM tenants WHERE tenant_id = $1)
+        ON CONFLICT DO NOTHING
+    ]], {tenant_id, pcodes_literal})
+
+    if err_parent then
+        ngx.status = 502
+        ngx.say(cjson.encode({ error = "Database error", detail = err_parent }))
+        return
+    end
+
     -- Invalidate caches
-    local hierarchy_cache = ngx.shared.hierarchy_cache
-    if hierarchy_cache then hierarchy_cache:delete("h:" .. tenant_id) end
-    local region_cache = ngx.shared.region_cache
-    if region_cache then region_cache:flush_all() end
+    invalidate_caches()
 
     ngx.status = 201
     ngx.header["Content-Type"] = "application/json"
@@ -167,8 +191,7 @@ local function remove_territory(pcode)
     end
 
     -- Invalidate caches
-    local hierarchy_cache = ngx.shared.hierarchy_cache
-    if hierarchy_cache then hierarchy_cache:delete("h:" .. tenant_id) end
+    invalidate_caches()
 
     ngx.header["Content-Type"] = "application/json"
     ngx.say('{"deleted":true}')

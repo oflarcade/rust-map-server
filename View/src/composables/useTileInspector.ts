@@ -21,7 +21,9 @@ function persistStoredTenantId(id: string): void {
 
 function initialTenantIdFromStorage(): string {
   const stored = readStoredTenantId();
-  if (stored && TENANTS.some((t) => t.id === stored)) return stored;
+  // The static TENANTS list does not include DB-created tenants (e.g. 22, 23, ...).
+  // Keep the stored value; reloadTenantList() will validate/fallback after API load.
+  if (stored) return stored;
   return TENANTS[0]?.id ?? '1';
 }
 import maplibregl, { type Map } from 'maplibre-gl';
@@ -79,6 +81,7 @@ const currentZoom = ref(0);
 const mapContainer = ref<HTMLDivElement | null>(null);
 
 let map: Map | null = null;
+let tenantLoadVersion = 0;
 const baseMeta = reactive<Record<string, any>>({});
 const boundaryMeta = reactive<Record<string, any>>({});
 
@@ -144,12 +147,15 @@ export function useTileInspector() {
   }
 
   async function reloadTenant(): Promise<void> {
+    const loadVersion = ++tenantLoadVersion;
     const tenant = currentTenant.value;
     resetMeta(baseMeta);
     resetMeta(boundaryMeta);
 
     const { baseMeta: b, boundaryMeta: bb, baseUrl, boundaryUrl } =
       await loadMartinTileMetadata(tenant, DEFAULT_MARTIN_URL);
+    // Ignore stale loads when tenant changed while async metadata was in flight.
+    if (loadVersion !== tenantLoadVersion) return;
     Object.assign(baseMeta, b);
     Object.assign(boundaryMeta, bb);
 
@@ -163,11 +169,24 @@ export function useTileInspector() {
     const container = mapContainer.value;
     if (!container) return;
 
+    // Prefer source-native viewport (state tiles like nigeria-borno) to avoid blank
+    // initial views when tenant defaults are country-level.
+    let initialCenter: [number, number] = [tenant.lon, tenant.lat];
+    let initialZoom: number = tenant.zoom;
+    const c = baseMeta.center;
+    if (Array.isArray(c) && c.length >= 3) {
+      const [lon, lat, zoom] = c;
+      if (Number.isFinite(lon) && Number.isFinite(lat) && Number.isFinite(zoom)) {
+        initialCenter = [lon, lat];
+        initialZoom = zoom;
+      }
+    }
+
     map = new maplibregl.Map({
       container,
       style,
-      center: [tenant.lon, tenant.lat],
-      zoom: tenant.zoom,
+      center: initialCenter,
+      zoom: initialZoom,
     });
 
     map.addControl(new maplibregl.NavigationControl());

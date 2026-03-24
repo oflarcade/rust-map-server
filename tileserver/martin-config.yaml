@@ -1,5 +1,10 @@
 # Martin configuration for Docker/Linux - port 3000
 # Used by docker-compose.tenant.yml
+#
+# Each path is scanned for *.pmtiles at that directory level only (not recursive).
+# generate-states.sh writes to pmtiles/<profile>/ and boundaries/<profile>/ — list those
+# dirs here or copy files to data/pmtiles/ top level. Duplicate basenames in two paths
+# should be avoided (same source id).
 
 listen_addresses: '0.0.0.0:3000'
 worker_processes: 4
@@ -9,3 +14,9 @@ pmtiles:
   paths:
     - /data/pmtiles
     - /data/boundaries
+    # State tiles from generate-states often live here; not scanned via /data/pmtiles alone.
+    - /data/pmtiles/z6
+    # Add only after the directory exists on the host (mkdir -p data/pmtiles/full && upload):
+    # - /data/pmtiles/full
+    # - /data/pmtiles/terrain
+    # - /data/boundaries/full

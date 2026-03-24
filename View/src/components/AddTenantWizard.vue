@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { DEFAULT_PROXY_URL, normalizeBaseUrl } from '../config/urls';
+import { deriveNigeriaMartinSources } from '../lib/martinSources';
 import { useTileInspector } from '../composables/useTileInspector';
 import Tree from 'primevue/tree';
 import type { TreeNode } from 'primevue/treenode';
@@ -52,8 +53,7 @@ const derivedSources = computed(() => {
   });
 
   if (cc === 'NG' && active.length > 0) {
-    const stateSlug = active.map(s => s.name.toLowerCase().replace(/\s+/g, '-')).join('-');
-    return { tile: `nigeria-${stateSlug}`, boundary: `nigeria-${stateSlug}-boundaries` };
+    return deriveNigeriaMartinSources(active.map(s => s.name));
   }
   if (cc === 'IN' && active.length > 0) {
     const name = active[0].name.toLowerCase().replace(/\s+/g, '');
@@ -64,6 +64,20 @@ const derivedSources = computed(() => {
 
 const tileSource     = computed(() => tileOverride.value.trim()     || derivedSources.value.tile);
 const boundarySource = computed(() => boundaryOverride.value.trim() || derivedSources.value.boundary);
+
+/** Display + submit name: manual entry, or auto "Bridge {State(s)}" when NG/IN scope is chosen. */
+const effectiveTenantName = computed(() => {
+  const manual = tenantName.value.trim();
+  if (manual) return manual;
+  const cc = countryCode.value;
+  if (cc !== 'NG' && cc !== 'IN') return '';
+  const active = states.value.filter((s) => {
+    const k = selectionKeys.value[s.pcode];
+    return k && (k.checked || k.partialChecked);
+  });
+  if (active.length === 0) return '';
+  return `Bridge ${active.map((s) => s.name).join(' + ')}`;
+});
 
 // ── Tenant ID validation ─────────────────────────────────────────────────────
 const idValidating = ref(false);
@@ -197,8 +211,8 @@ const created  = ref(false);
 const canCreate = computed(() =>
   idValid.value &&
   countryCode.value &&
-  tenantName.value.trim() &&
-  derivedSources.value.tile
+  !!effectiveTenantName.value &&
+  !!derivedSources.value.tile
 );
 
 async function createTenant() {
@@ -211,7 +225,7 @@ async function createTenant() {
       body: JSON.stringify({
         tenant_id:       Number(tenantId.value),
         country_code:    countryCode.value,
-        country_name:    tenantName.value.trim(),
+        country_name:    effectiveTenantName.value,
         tile_source:     tileSource.value,
         boundary_source: boundarySource.value,
       }),
@@ -312,7 +326,10 @@ function openHierarchyEditor() {
         <!-- Tenant Name -->
         <div class="field-group">
           <label class="field-label">Tenant name</label>
-          <InputText v-model="tenantName" placeholder="e.g. Bridge Tanzania" class="w-full !text-sm" />
+          <InputText v-model="tenantName" placeholder="e.g. Bridge Adamawa (optional if states selected)" class="w-full !text-sm" />
+          <p v-if="(countryCode === 'NG' || countryCode === 'IN') && !tenantName.trim() && effectiveTenantName" class="mt-1 text-[11px] text-slate-500">
+            Will use: <strong>{{ effectiveTenantName }}</strong>
+          </p>
         </div>
 
         <!-- Auto-derived sources preview -->

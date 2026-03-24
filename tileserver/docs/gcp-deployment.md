@@ -6,7 +6,8 @@ This guide covers two ways to run the Martin + Nginx tile server on Google Cloud
 
 - **Martin** serves PMTiles (base tiles + boundary tiles) via HTTP range requests.
 - **Nginx (OpenResty)** does tenant routing (`X-Tenant-ID` → source), Lua endpoints (GeoJSON, search, region lookup), and proxies tile requests to Martin.
-- **Data**: `pmtiles/`, `boundaries/`, `hdx/` must be available to the container at `/data/pmtiles`, `/data/boundaries`, `/data/hdx`.
+- **Data**: Under the repo, use `data/pmtiles/`, `data/boundaries/`, `data/hdx/` (mounted into containers as `/data/pmtiles`, `/data/boundaries`, `/data/hdx`; see `tileserver/docker-compose.tenant.yml`).
+- **Deploy helper**: From repo root, `./scripts/sh/deploy-gcp-view.sh` builds the Vue app with production `VITE_*` URLs and `gcloud compute scp`s `View/dist` to the VM. `./scripts/sh/deploy-gcp-lua.sh` uploads Lua modules; restart nginx on the VM afterward.
 
 ---
 
@@ -73,9 +74,11 @@ VM=martin-tileserver
 rsync -avz --exclude 'data/' --exclude 'osm-data/' --exclude '.git' \
   . $VM:/home/$USER/rust-map-server/
 
-# Copy tile data (pmtiles, boundaries, hdx)
-gcloud compute scp --zone=$ZONE --recurse pmtiles boundaries hdx \
-  $VM:/home/$USER/rust-map-server/
+# Copy tile data (compose expects repo-relative data/ directory)
+mkdir -p data/pmtiles data/boundaries data/hdx
+gcloud compute scp --zone=$ZONE --recurse \
+  data/pmtiles data/boundaries data/hdx \
+  $VM:/home/$USER/rust-map-server/data/
 ```
 
 If you attached a data disk, format and mount it, then put `pmtiles/`, `boundaries/`, and `hdx/` there and point Docker at that path (see `docker-compose` below).
@@ -93,7 +96,7 @@ docker compose -f tileserver/docker-compose.tenant.yml up -d
 
 # Check
 curl -s http://localhost:8080/health
-curl -s -H "X-Tenant-ID: 1" http://localhost:8080/catalog
+curl -s http://localhost:3000/catalog
 ```
 
 ### 1.6 Open HTTP and (optional) HTTPS

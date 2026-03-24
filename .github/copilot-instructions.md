@@ -68,14 +68,14 @@ Every map displays:
 - **Layer 1**: Base tiles from `<country>-detailed.pmtiles` (OSM: roads, water, buildings, places)
 - **Layer 2**: Boundary tiles from OSM/HDX-derived boundary PMTiles
 
-For state-specific requests, uses `<country>-<state>-admin.pmtiles` instead of country-level tiles.
+For state-specific requests, `generate-states.*` writes `<country>-<state>-boundaries.pmtiles` (Martin source id matches `tenants.boundary_source`, e.g. `nigeria-delta-boundaries`).
 
 ## Key Conventions
 
 ### File Naming
 - **OSM data**: `<country>-latest.osm.pbf` (e.g., `nigeria-latest.osm.pbf`)
 - **Planetiler output**: `<country>-detailed.pmtiles` (base map with roads/water/buildings)
-- **Boundary tiles**: `<country>-admin.pmtiles` (country outline) + `<country>-<state>-admin.pmtiles` (state-level)
+- **Boundary tiles**: `<country>-boundaries.pmtiles` (country outline from `generate-country-boundaries`) + `<country>-<state>-boundaries.pmtiles` (state-level from `generate-states`; tippecanoe layer name remains `admin`)
 - **HDX COD-AB**: `data/hdx/<country>_adm1.geojson` (state level); state bounds: `data/sources/<country>-states/bounds.json` (from bounds-from-hdx.py)
 
 ### Script Conventions (PowerShell)
