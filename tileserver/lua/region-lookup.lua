@@ -1,15 +1,16 @@
 -- region-lookup.lua
 -- GET /region?lat=<lat>&lon=<lon>
 -- Returns the full administrative hierarchy for the given coordinates.
--- Uses geo_hierarchy_nodes GIST lookup (new model); falls back to raw LGA.
+-- Uses geo_hierarchy_nodes GIST lookup (new model); falls back to raw adm2.
 --
 -- Response (found):
 --   {
---     found: true, matched_level: "geo_node"|"lga",
+--     found: true, matched_level: "geo_node"|"adm2",
 --     adm_0: { pcode, name },             -- country
---     adm_1: { pcode, name },             -- state
+--     adm_1: { pcode, name },             -- state (adm1)
 --     adm_{2+level_order}: { pcode, name, color, level_label },  -- geo node per level
---     adm_{2+max_level_order+1}: { pcode, name }  -- lga (when matched)
+--     adm_{2+max_level_order+1}: { pcode, name }  -- adm2 (when matched, geo_node path)
+--     adm_2: { pcode, name }              -- adm2 (fallback: no geo_hierarchy_nodes)
 --   }
 
 local cjson = require("cjson.safe")
@@ -73,10 +74,10 @@ local tenant, _ = db.get_tenant(tenant_id)
 local country_pcode = (tenant and tenant.country_code) or ""
 local country_name  = (tenant and tenant.country_name)  or ""
 
--- Always look up the LGA containing the point
-local lga_sql = [[
-    SELECT a.pcode AS lga_pcode, a.name AS lga_name,
-           a.parent_pcode AS state_pcode, s.name AS state_name
+-- Always look up the adm2 feature containing the point
+local adm2_sql = [[
+    SELECT a.pcode AS adm2_pcode, a.name AS adm2_name,
+           a.parent_pcode AS adm1_pcode, s.name AS adm1_name
     FROM adm_features a
     JOIN tenant_scope ts ON ts.pcode = a.pcode AND ts.tenant_id = $1
     JOIN adm_features s  ON s.pcode = a.parent_pcode
@@ -86,8 +87,8 @@ local lga_sql = [[
 ]]
 
 local pg = require("pg-pool")
-local lga_rows, _ = pg.exec(lga_sql, {tenant_id, lat, lon})
-local lga_row = lga_rows and lga_rows[1]
+local adm2_rows, _ = pg.exec(adm2_sql, {tenant_id, lat, lon})
+local adm2_row = adm2_rows and adm2_rows[1]
 
 -- Try geo_hierarchy_nodes lookup first
 local deep_node, geo_err = db.region_geo_lookup(tenant_id, lat, lon)
@@ -119,8 +120,8 @@ if deep_node then
         matched_level = "geo_node",
         adm_0 = { pcode = country_pcode, name = country_name },
         adm_1 = {
-            pcode = (lga_row and lga_row.state_pcode) or (deep_node.state_pcode),
-            name  = (lga_row and lga_row.state_name)  or "",
+            pcode = (adm2_row and adm2_row.adm1_pcode) or (deep_node.state_pcode),
+            name  = (adm2_row and adm2_row.adm1_name)  or "",
         },
     }
 
@@ -137,10 +138,10 @@ if deep_node then
         if lo > max_level_order then max_level_order = lo end
     end
 
-    -- LGA sits one level above max
-    if lga_row then
-        local lga_key = "adm_" .. (max_level_order + 3)
-        payload[lga_key] = { pcode = lga_row.lga_pcode, name = lga_row.lga_name }
+    -- adm2 sits one level above the deepest geo node
+    if adm2_row then
+        local adm2_key = "adm_" .. (max_level_order + 3)
+        payload[adm2_key] = { pcode = adm2_row.adm2_pcode, name = adm2_row.adm2_name }
     end
 
     local body = cjson.encode(payload)
@@ -148,14 +149,15 @@ if deep_node then
     return
 end
 
--- Fallback: LGA only
-if lga_row then
+-- Fallback: adm2 only (no geo_hierarchy_nodes for this tenant)
+-- adm2 sits directly under adm1, so it goes at adm_2.
+if adm2_row then
     local payload = {
         found         = true,
-        matched_level = "lga",
+        matched_level = "adm2",
         adm_0 = { pcode = country_pcode, name = country_name },
-        adm_1 = { pcode = lga_row.state_pcode, name = lga_row.state_name },
-        adm_4 = { pcode = lga_row.lga_pcode, name = lga_row.lga_name },
+        adm_1 = { pcode = adm2_row.adm1_pcode, name = adm2_row.adm1_name },
+        adm_2 = { pcode = adm2_row.adm2_pcode, name = adm2_row.adm2_name },
     }
     local body = cjson.encode(payload)
     cache_and_send("200", body)

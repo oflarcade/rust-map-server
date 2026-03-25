@@ -20,7 +20,7 @@ export function standaloneInitMapInteractions(): void { _initMapInteractions?.()
 // Internal types
 // ---------------------------------------------------------------------------
 
-type HighlightItem = { pcode: string; level: 'state' | 'lga' | 'zone'; name?: string };
+type HighlightItem = { pcode: string; level: 'state' | 'adm2' | 'zone'; name?: string };
 
 function escapeHtml(s: string): string {
   return s
@@ -160,7 +160,7 @@ export function useMapInteraction() {
       return;
     }
 
-    // state or lga: find geometry in PostGIS GeoJSON features (includes grouped_lga for highlight)
+    // state or adm2: find geometry in PostGIS GeoJSON features (includes adm2_grouped for highlight)
     resetZonePaint();
     const allBoundaryFeatures = getAllBoundaryFeatures();
     const feature = allBoundaryFeatures.find((f) => f.properties?.pcode === pcode);

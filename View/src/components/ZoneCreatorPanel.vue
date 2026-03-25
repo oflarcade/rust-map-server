@@ -108,8 +108,8 @@ function selectAllChildren(stateNode: any) {
       toAdd.push({ pcode, name, isZone: !!(child.zone_pcode), parent: stateNode.pcode });
     }
   } else {
-    for (const lga of stateNode.lgas ?? []) {
-      toAdd.push({ pcode: lga.pcode, name: lga.name, isZone: false, parent: stateNode.pcode });
+    for (const adm2 of stateNode.adm2s ?? []) {
+      toAdd.push({ pcode: adm2.pcode, name: adm2.name, isZone: false, parent: stateNode.pcode });
     }
   }
   for (const item of toAdd) {
@@ -313,17 +313,17 @@ onMounted(() => loadData());
               <!-- Flat LGAs (no zone hierarchy yet) -->
               <template v-else>
                 <label
-                  v-for="lga in state.lgas" :key="lga.pcode"
+                  v-for="adm2 in state.adm2s" :key="adm2.pcode"
                   class="flex items-center gap-1.5 px-1 py-0.5 rounded cursor-pointer text-[11px] text-slate-700 hover:bg-slate-100"
                 >
                   <input
                     type="checkbox"
                     class="flex-shrink-0 accent-blue-600"
-                    :checked="isSelected(lga.pcode)"
-                    @change="togglePcode(lga.pcode, lga.name, false, state.pcode)"
+                    :checked="isSelected(adm2.pcode)"
+                    @change="togglePcode(adm2.pcode, adm2.name, false, state.pcode)"
                   />
-                  <span v-if="lga.level_label" class="text-[9px] bg-slate-200 text-slate-600 rounded px-1 flex-shrink-0 whitespace-nowrap">{{ lga.level_label }}</span>
-                  <span class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{{ lga.name }}</span>
+                  <span v-if="adm2.level_label" class="text-[9px] bg-slate-200 text-slate-600 rounded px-1 flex-shrink-0 whitespace-nowrap">{{ adm2.level_label }}</span>
+                  <span class="flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{{ adm2.name }}</span>
                 </label>
               </template>
             </div>

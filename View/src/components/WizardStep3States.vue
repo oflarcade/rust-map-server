@@ -39,7 +39,7 @@ async function loadStates() {
     states.value = (data.states ?? []).map((s: any) => ({
       pcode: s.pcode,
       name: s.name,
-      lgas: s.children ?? s.lgas ?? [],
+      adm2s: s.children ?? s.adm2s ?? [],
     }));
     // After loading, sync selection from props
     syncSelectionFromProps();
@@ -54,11 +54,11 @@ function syncSelectionFromProps() {
   const selected = new Set(props.selected ?? []);
   const keys: Record<string, { checked: boolean; partialChecked: boolean }> = {};
   for (const state of states.value) {
-    const lgaPcodes = state.lgas.map((l) => l.pcode);
-    const checkedCount = lgaPcodes.filter((p) => selected.has(p)).length;
-    for (const lga of state.lgas) {
-      if (selected.has(lga.pcode)) {
-        keys[lga.pcode] = { checked: true, partialChecked: false };
+    const lgaPcodes = (state as any).adm2s.map((a: any) => a.pcode);
+    const checkedCount = lgaPcodes.filter((p: string) => selected.has(p)).length;
+    for (const adm2 of (state as any).adm2s) {
+      if (selected.has(adm2.pcode)) {
+        keys[adm2.pcode] = { checked: true, partialChecked: false };
       }
     }
     if (checkedCount === lgaPcodes.length && lgaPcodes.length > 0) {
@@ -79,9 +79,9 @@ watch(() => props.selected, () => {
 // Convert selectionKeys back to array of leaf LGA pcodes
 function onSelectionChange(keys: Record<string, { checked: boolean; partialChecked: boolean }>) {
   selectionKeys.value = keys;
-  const allLgaPcodes = new Set(states.value.flatMap((s) => s.lgas.map((l) => l.pcode)));
+  const allAdm2Pcodes = new Set(states.value.flatMap((s: any) => s.adm2s.map((a: any) => a.pcode)));
   const selected = Object.keys(keys).filter(
-    (k) => keys[k].checked && allLgaPcodes.has(k)
+    (k) => keys[k].checked && allAdm2Pcodes.has(k)
   );
   emit('update:selected', selected);
 }
@@ -93,22 +93,22 @@ const treeNodes = computed<TreeNode[]>(() => {
     .map((state): TreeNode | null => {
       const matchesState =
         !q || state.name.toLowerCase().includes(q) || state.pcode.toLowerCase().includes(q);
-      const filteredLgas = q
-        ? state.lgas.filter(
-            (lga) =>
-              lga.name.toLowerCase().includes(q) || lga.pcode.toLowerCase().includes(q)
+      const filteredAdm2s = q
+        ? (state as any).adm2s.filter(
+            (a: any) =>
+              a.name.toLowerCase().includes(q) || a.pcode.toLowerCase().includes(q)
           )
-        : state.lgas;
-      if (!matchesState && filteredLgas.length === 0) return null;
+        : (state as any).adm2s;
+      if (!matchesState && filteredAdm2s.length === 0) return null;
       return {
         key: state.pcode,
         label: state.name,
         data: state,
-        children: (matchesState ? state.lgas : filteredLgas).map(
-          (lga): TreeNode => ({
-            key: lga.pcode,
-            label: lga.name,
-            data: lga,
+        children: (matchesState ? (state as any).adm2s : filteredAdm2s).map(
+          (a: any): TreeNode => ({
+            key: a.pcode,
+            label: a.name,
+            data: a,
             leaf: true,
           })
         ),
@@ -118,9 +118,9 @@ const treeNodes = computed<TreeNode[]>(() => {
 });
 
 const selectedCount = computed(() => {
-  const allLgaPcodes = new Set(states.value.flatMap((s) => s.lgas.map((l) => l.pcode)));
+  const allAdm2Pcodes = new Set(states.value.flatMap((s: any) => s.adm2s.map((a: any) => a.pcode)));
   return Object.keys(selectionKeys.value).filter(
-    (k) => selectionKeys.value[k].checked && allLgaPcodes.has(k)
+    (k) => selectionKeys.value[k].checked && allAdm2Pcodes.has(k)
   ).length;
 });
 
@@ -128,12 +128,12 @@ function selectAll() {
   const keys: Record<string, { checked: boolean; partialChecked: boolean }> = {};
   for (const state of states.value) {
     keys[state.pcode] = { checked: true, partialChecked: false };
-    for (const lga of state.lgas) {
-      keys[lga.pcode] = { checked: true, partialChecked: false };
+    for (const adm2 of (state as any).adm2s) {
+      keys[adm2.pcode] = { checked: true, partialChecked: false };
     }
   }
   selectionKeys.value = keys;
-  const allPcodes = states.value.flatMap((s) => s.lgas.map((l) => l.pcode));
+  const allPcodes = states.value.flatMap((s: any) => s.adm2s.map((a: any) => a.pcode));
   emit('update:selected', allPcodes);
 }
 

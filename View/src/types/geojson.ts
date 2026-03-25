@@ -1,4 +1,4 @@
-export type BoundaryFeatureType = 'lga' | 'zone' | 'state' | 'ward' | 'grouped_lga';
+export type BoundaryFeatureType = 'adm2' | 'adm2_grouped' | 'adm3plus' | 'zone' | 'state' | 'geo_node';
 
 export interface BoundaryFeatureProperties {
   feature_type: BoundaryFeatureType;

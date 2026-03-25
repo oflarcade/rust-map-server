@@ -4,6 +4,7 @@
 #
 # Usage: ./scripts/sh/generate-states.sh <profile> <country> [state1] [state2] ...
 #        ./scripts/sh/generate-states.sh --list <profile> <country>
+#        ./scripts/sh/generate-states.sh --minzoom 6 <profile> <country>
 #
 # If no states are specified, auto-discovers ALL states from HDX adm1 and generates
 # tiles for each one. Use --list to see available states. Requires HDX COD-AB data.
@@ -14,9 +15,10 @@
 #   terrain  - water + landuse + landcover + buildings + places (balanced)
 #
 # Examples:
-#   ./scripts/sh/generate-states.sh terrain nigeria                       # All states
-#   ./scripts/sh/generate-states.sh terrain nigeria Lagos Edo Bayelsa     # Specific states
-#   ./scripts/sh/generate-states.sh --list terrain nigeria                # List states only
+#   ./scripts/sh/generate-states.sh full nigeria                          # All states, z10-14
+#   ./scripts/sh/generate-states.sh --minzoom 6 full kenya                # All states, z6-14
+#   ./scripts/sh/generate-states.sh full nigeria Lagos Edo Bayelsa        # Specific states
+#   ./scripts/sh/generate-states.sh --list full nigeria                   # List states only
 #
 set -euo pipefail
 
@@ -24,10 +26,12 @@ LIST_MODE=false
 PROFILE=""
 COUNTRY=""
 STATES=()
+CUSTOM_MIN_ZOOM=""
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --minzoom) CUSTOM_MIN_ZOOM="$2"; shift 2; continue ;;
         --list|-l) LIST_MODE=true; shift ;;
         *)
             if [ -z "$PROFILE" ]; then
@@ -56,7 +60,7 @@ TEMP_DIR="$BASE_DIR/temp"
 DATA_SOURCES_DIR="$BASE_DIR/data/sources"
 BOUNDS_SCRIPT="$BASE_DIR/scripts/bounds-from-hdx.py"
 
-MIN_ZOOM=10
+MIN_ZOOM=${CUSTOM_MIN_ZOOM:-6}
 MAX_ZOOM=14
 
 # Colors

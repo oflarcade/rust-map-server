@@ -75,15 +75,15 @@ function buildStateChildren(state: HierarchyState): TreeNode[] {
       children.push(buildChildNode(child));
     }
   } else {
-    for (const lga of state.lgas) {
+    for (const adm2 of state.adm2s) {
       children.push({
-        key: lga.pcode,
-        label: lga.name,
+        key: adm2.pcode,
+        label: adm2.name,
         data: {
-          type: 'lga',
-          pcode: lga.pcode,
-          name: lga.name,
-          level_label: lga.level_label,
+          type: 'adm2',
+          pcode: adm2.pcode,
+          name: adm2.name,
+          level_label: adm2.level_label,
         },
         leaf: true,
       });
@@ -129,14 +129,14 @@ function onNodeSelect(node: TreeNode) {
   } else if (d.type === 'zone') {
     highlightBoundary({ pcode: d.pcode, level: 'zone' });
   } else {
-    // leaf boundary node — may be an ungrouped LGA or a node deep in the children tree
+    // leaf boundary node — may be an ungrouped adm2 or a node deep in the children tree
     const state = boundaryHierarchy.value?.states.find((s) =>
-      s.lgas.some((l) => l.pcode === d.pcode) ||
+      s.adm2s.some((a) => a.pcode === d.pcode) ||
       findInTree(s.children, d.pcode) != null,
     );
-    highlightBoundary({ pcode: d.pcode, level: 'lga', name: d.name });
+    highlightBoundary({ pcode: d.pcode, level: 'adm2', name: d.name });
     if (state) {
-      const item = state.lgas.find((l) => l.pcode === d.pcode)
+      const item = state.adm2s.find((a) => a.pcode === d.pcode)
                 ?? findInTree(state.children, d.pcode);
       if (item) flyToHierarchyItem(state, item);
     }
@@ -178,8 +178,8 @@ function highlightPcode(pcode: string): string {
       </InputGroup>
       <p v-if="boundarySearch && hierarchy" class="text-[11px] text-slate-400 mt-1.5">
         {{ hierarchy.states.length }} state{{ hierarchy.states.length !== 1 ? 's' : '' }},
-        {{ hierarchy.states.reduce((n, s) => n + s.lgas.length, 0) }}
-        LGA{{ hierarchy.states.reduce((n, s) => n + s.lgas.length, 0) !== 1 ? 's' : '' }}
+        {{ hierarchy.states.reduce((n, s) => n + s.adm2s.length, 0) }}
+        area{{ hierarchy.states.reduce((n, s) => n + s.adm2s.length, 0) !== 1 ? 's' : '' }}
       </p>
     </section>
 

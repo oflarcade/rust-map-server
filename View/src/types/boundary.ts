@@ -50,7 +50,7 @@ export interface HierarchyState {
   area_sqkm?: number;
   center_lat?: number;
   center_lon?: number;
-  lgas: HierarchyLGA[];
+  adm2s: HierarchyLGA[];
   zones?: HierarchyZone[];
   children?: HierarchyChild[];
 }
@@ -61,6 +61,6 @@ export interface HierarchyData {
   source?: string;
   license?: string;
   state_count?: number;
-  lga_count?: number;
+  adm2_count?: number;
   states: HierarchyState[];
 }

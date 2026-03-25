@@ -120,7 +120,7 @@ async function removeNode(node: GeoNode) {
 const adm2NameMap = computed<Map<string, string>>(() => {
   const m = new Map<string, string>();
   for (const s of rawHierarchy.value?.states ?? []) {
-    for (const l of (s as any).lgas ?? []) m.set(l.pcode, l.name);
+    for (const a of (s as any).adm2s ?? []) m.set(a.pcode, a.name);
   }
   return m;
 });
@@ -133,8 +133,8 @@ const adm2NameMap = computed<Map<string, string>>(() => {
 const parentChildMap = computed<Map<string, any[]>>(() => {
   const m = new Map<string, any[]>();
   for (const s of rawHierarchy.value?.states ?? []) {
-    for (const lga of (s as any).lgas ?? []) {
-      if (lga.children?.length) m.set(lga.pcode, lga.children);
+    for (const adm2 of (s as any).adm2s ?? []) {
+      if (adm2.children?.length) m.set(adm2.pcode, adm2.children);
     }
   }
   return m;

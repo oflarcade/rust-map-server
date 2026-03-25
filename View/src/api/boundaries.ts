@@ -16,7 +16,7 @@ export async function fetchHierarchy(tenantId: string): Promise<HierarchyData> {
   // Lua encodes empty tables as {} (object) — normalise every array field
   if (data && !Array.isArray(data.states)) data.states = [];
   for (const state of data.states ?? []) {
-    if (!Array.isArray(state.lgas)) state.lgas = [];
+    if (!Array.isArray(state.adm2s)) state.adm2s = [];
     if (!Array.isArray(state.children)) state.children = [];
   }
   return data as HierarchyData;

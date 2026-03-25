@@ -123,20 +123,20 @@ if is_raw then
 
     local states = {}
     for _, s in ipairs(states_list) do
-        local lgas = {}
-        for _, l in ipairs(adm2_by_parent[s.pcode] or {}) do
-            local lga_entry = {
-                pcode       = l.pcode,
-                name        = l.name,
-                level_label = l.level_label,
-                area_sqkm   = tonumber(l.area_sqkm),
-                center_lat  = tonumber(l.center_lat),
-                center_lon  = tonumber(l.center_lon),
+        local adm2s = {}
+        for _, a in ipairs(adm2_by_parent[s.pcode] or {}) do
+            local adm2_entry = {
+                pcode       = a.pcode,
+                name        = a.name,
+                level_label = a.level_label,
+                area_sqkm   = tonumber(a.area_sqkm),
+                center_lat  = tonumber(a.center_lat),
+                center_lon  = tonumber(a.center_lon),
             }
-            -- Attach adm3+ children (e.g. Sectors under Districts for Rwanda)
-            local sub = build_raw_children(l.pcode, 2)
-            if sub and #sub > 0 then lga_entry.children = sub end
-            table.insert(lgas, lga_entry)
+            -- Attach adm3+ children (e.g. sectors under districts for Rwanda)
+            local sub = build_raw_children(a.pcode, 2)
+            if sub and #sub > 0 then adm2_entry.children = sub end
+            table.insert(adm2s, adm2_entry)
         end
         local state_entry = {
             pcode      = s.pcode,
@@ -145,7 +145,7 @@ if is_raw then
             area_sqkm  = tonumber(s.area_sqkm),
             center_lat = tonumber(s.center_lat),
             center_lon = tonumber(s.center_lon),
-            lgas       = lgas,
+            adm2s      = adm2s,
         }
         local sub = build_raw_children(s.pcode, 1)
         if sub and #sub > 0 then state_entry.children = sub end
@@ -262,28 +262,28 @@ build_node_children = function(parent_key, depth)
             node.children = sub
         else
             -- Leaf node: attach constituent adm2 features as children for grouping nodes
-            -- (e.g. a District containing multiple LGAs). Skip for adm3+ constituents
-            -- (sectors, wards) — the geo_node itself IS the boundary, so nesting the raw
-            -- adm_features record underneath creates a redundant duplicate row.
-            local lga_children = {}
+            -- (e.g. a region containing multiple sub-counties). Skip for adm3+ constituents
+            -- (sectors, wards, parishes) — the geo_node itself IS the boundary, so nesting
+            -- the raw adm_features record underneath creates a redundant duplicate row.
+            local adm2_children = {}
             for _, pcode in ipairs(pcodes) do
-                local lga = adm_by_pcode[pcode]
-                if lga and tonumber(lga.adm_level) <= 2 then
-                    local lga_node = {
-                        pcode       = lga.pcode,
-                        name        = lga.name,
-                        level       = tonumber(lga.adm_level),
-                        level_label = lga.level_label,
-                        area_sqkm   = tonumber(lga.area_sqkm),
-                        center_lat  = tonumber(lga.center_lat),
-                        center_lon  = tonumber(lga.center_lon),
+                local adm2 = adm_by_pcode[pcode]
+                if adm2 and tonumber(adm2.adm_level) <= 2 then
+                    local adm2_node = {
+                        pcode       = adm2.pcode,
+                        name        = adm2.name,
+                        level       = tonumber(adm2.adm_level),
+                        level_label = adm2.level_label,
+                        area_sqkm   = tonumber(adm2.area_sqkm),
+                        center_lat  = tonumber(adm2.center_lat),
+                        center_lon  = tonumber(adm2.center_lon),
                     }
-                    local adm_sub = build_adm_children(lga.pcode, depth + 2)
-                    if adm_sub and #adm_sub > 0 then lga_node.children = adm_sub end
-                    table.insert(lga_children, lga_node)
+                    local adm_sub = build_adm_children(adm2.pcode, depth + 2)
+                    if adm_sub and #adm_sub > 0 then adm2_node.children = adm_sub end
+                    table.insert(adm2_children, adm2_node)
                 end
             end
-            if #lga_children > 0 then node.children = lga_children end
+            if #adm2_children > 0 then node.children = adm2_children end
         end
 
         table.insert(children, node)
@@ -296,22 +296,22 @@ end
 -- ---------------------------------------------------------------------------
 -- Assemble states
 -- ---------------------------------------------------------------------------
-local states  = {}
-local lga_count = 0
+local states    = {}
+local adm2_count = 0
 
 for _, s in ipairs(states_list) do
-    -- Ungrouped LGAs: adm2 under this state NOT assigned to any geo node
-    local lgas = {}
-    for _, l in ipairs(adm2_by_parent[s.pcode] or {}) do
-        if not assigned_pcodes[l.pcode] then
-            lga_count = lga_count + 1
-            table.insert(lgas, {
-                pcode       = l.pcode,
-                name        = l.name,
-                level_label = l.level_label,
-                area_sqkm   = tonumber(l.area_sqkm),
-                center_lat  = tonumber(l.center_lat),
-                center_lon  = tonumber(l.center_lon),
+    -- Ungrouped adm2 features: under this state NOT assigned to any geo node
+    local adm2s = {}
+    for _, a in ipairs(adm2_by_parent[s.pcode] or {}) do
+        if not assigned_pcodes[a.pcode] then
+            adm2_count = adm2_count + 1
+            table.insert(adm2s, {
+                pcode       = a.pcode,
+                name        = a.name,
+                level_label = a.level_label,
+                area_sqkm   = tonumber(a.area_sqkm),
+                center_lat  = tonumber(a.center_lat),
+                center_lon  = tonumber(a.center_lon),
             })
         end
     end
@@ -324,7 +324,7 @@ for _, s in ipairs(states_list) do
         area_sqkm  = tonumber(s.area_sqkm),
         center_lat = tonumber(s.center_lat),
         center_lon = tonumber(s.center_lon),
-        lgas       = lgas,
+        adm2s      = adm2s,
     }
 
     -- Geo hierarchy nodes under this state
@@ -345,7 +345,7 @@ local response = {
     name        = country_name,
     source      = "PostGIS",
     state_count = #states,
-    lga_count   = lga_count,
+    adm2_count  = adm2_count,
     states      = states,
 }
 

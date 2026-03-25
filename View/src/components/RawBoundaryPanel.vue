@@ -34,8 +34,8 @@ const { currentTenant } = useTileInspector();
 const parentChildMap = computed<Map<string, any[]>>(() => {
   const m = new Map<string, any[]>();
   for (const s of rawHierarchy.value?.states ?? []) {
-    for (const lga of (s as any).lgas ?? []) {
-      if (lga.children?.length) m.set(lga.pcode, lga.children);
+    for (const adm2 of (s as any).adm2s ?? []) {
+      if (adm2.children?.length) m.set(adm2.pcode, adm2.children);
     }
   }
   return m;
@@ -97,9 +97,9 @@ const searchQ = ref('');
 const rawPcodeInfo = computed(() => {
   const m = new Map<string, { name: string; level_label: string }>();
   for (const state of rawHierarchy.value?.states ?? []) {
-    for (const lga of (state as any).lgas ?? []) {
-      m.set(lga.pcode, { name: lga.name, level_label: lga.level_label ?? adm2Label.value });
-      for (const child of (lga.children ?? []) as any[]) {
+    for (const adm2 of (state as any).adm2s ?? []) {
+      m.set(adm2.pcode, { name: adm2.name, level_label: adm2.level_label ?? adm2Label.value });
+      for (const child of (adm2.children ?? []) as any[]) {
         m.set(child.pcode, { name: child.name, level_label: child.level_label ?? '' });
       }
     }
@@ -263,7 +263,7 @@ async function doAssign() {
 
           <!-- LGAs (adm2) — and optional adm3+ children (e.g. Sectors for Rwanda) -->
           <div v-if="expandedStates.has(state.pcode)">
-            <template v-for="lga in filteredLgas(state.lgas ?? [])" :key="lga.pcode">
+            <template v-for="lga in filteredLgas(state.adm2s ?? [])" :key="lga.pcode">
               <!-- LGA row -->
               <div
                 class="flex items-stretch gap-2 pr-3 hover:bg-slate-50"
@@ -348,7 +348,7 @@ async function doAssign() {
             </template>
 
             <div
-              v-if="filteredLgas(state.lgas ?? []).length === 0"
+              v-if="filteredLgas(state.adm2s ?? []).length === 0"
               class="pl-7 pr-3 py-1 text-slate-400 italic"
             >
               No results

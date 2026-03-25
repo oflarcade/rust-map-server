@@ -77,7 +77,7 @@ const flatBoundaryTree = computed<FlatTreeNode[]>(() => {
     result.push({ pcode: state.pcode, name: state.name, depth: 0, isZone: false, level_label: 'State' });
     if (state.children?.length) flattenChildren(state.children, 1);
     else {
-      for (const lga of (state.lgas ?? [])) result.push({ pcode: lga.pcode, name: lga.name, depth: 1, isZone: false });
+      for (const adm2 of (state.adm2s ?? [])) result.push({ pcode: adm2.pcode, name: adm2.name, depth: 1, isZone: false });
       for (const zone of (state.zones ?? [])) result.push({ pcode: zone.zone_pcode, name: zone.zone_name, depth: 1, isZone: true, color: zone.color });
     }
   }
@@ -124,7 +124,7 @@ async function loadBoundaries() {
     if (zonesRes.ok) { const d = await zonesRes.json(); existingZones.value = d.zones ?? []; }
     hierarchyData.value = hier;
     allFeatures.value = geojson.features;
-    const lgaFeatures   = geojson.features.filter((f: any) => f.properties.feature_type === 'lga');
+    const lgaFeatures   = geojson.features.filter((f: any) => f.properties.feature_type === 'adm2');
     const zoneFeatures  = geojson.features.filter((f: any) => f.properties.feature_type === 'zone');
     const stateFeatures = geojson.features.filter((f: any) => f.properties.feature_type === 'state');
     if (map.getSource('lgas'))   (map.getSource('lgas')   as maplibregl.GeoJSONSource).setData({ type: 'FeatureCollection', features: lgaFeatures });
@@ -195,7 +195,7 @@ function getFeatureInfo(pcode: string): { name: string; parentName: string; type
   if (!hierarchyData.value) return null;
   for (const state of (hierarchyData.value.states ?? [])) {
     if (state.pcode === pcode) return { name: state.name, parentName: hierarchyData.value.name ?? '', type: 'State' };
-    for (const lga of (state.lgas ?? [])) if (lga.pcode === pcode) return { name: lga.name, parentName: state.name, type: 'LGA' };
+    for (const adm2 of (state.adm2s ?? [])) if (adm2.pcode === pcode) return { name: adm2.name, parentName: state.name, type: 'LGA' };
     for (const zone of (state.zones ?? [])) if (zone.zone_pcode === pcode) return { name: zone.zone_name, parentName: state.name, type: 'Zone' };
   }
   return null;

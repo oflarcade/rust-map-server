@@ -60,15 +60,15 @@ function buildStateChildren(state: HierarchyState): TreeNode[] {
       children.push(buildChildNode(child));
     }
   } else {
-    for (const lga of state.lgas) {
+    for (const adm2 of state.adm2s) {
       children.push({
-        key: lga.pcode,
-        label: lga.name,
+        key: adm2.pcode,
+        label: adm2.name,
         data: {
-          type: 'lga',
-          pcode: lga.pcode,
-          name: lga.name,
-          level_label: lga.level_label,
+          type: 'adm2',
+          pcode: adm2.pcode,
+          name: adm2.name,
+          level_label: adm2.level_label,
         },
         leaf: true,
       });
@@ -105,14 +105,14 @@ function onNodeSelect(node: TreeNode) {
   } else if (d.type === 'zone') {
     highlightBoundary({ pcode: d.pcode, level: 'zone' });
   } else {
-    // lga or adm leaf
+    // adm2 or adm leaf
     const state = boundaryHierarchy.value?.states.find((s) =>
-      s.lgas.some((l) => l.pcode === d.pcode),
+      s.adm2s.some((a) => a.pcode === d.pcode),
     );
-    highlightBoundary({ pcode: d.pcode, level: 'lga', name: d.name });
+    highlightBoundary({ pcode: d.pcode, level: 'adm2', name: d.name });
     if (state) {
-      const lga = state.lgas.find((l) => l.pcode === d.pcode);
-      if (lga) flyToHierarchyItem(state, lga);
+      const adm2 = state.adm2s.find((a) => a.pcode === d.pcode);
+      if (adm2) flyToHierarchyItem(state, adm2);
     }
   }
 }

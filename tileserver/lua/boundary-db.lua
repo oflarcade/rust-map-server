@@ -1,6 +1,7 @@
 -- boundary-db.lua
 -- All PostGIS queries for boundary endpoints.
 -- Called by serve-geojson, serve-hierarchy, search-boundaries, region-lookup.
+-- Terminology: adm1 = state/province, adm2 = LGA/district/sub-county, adm3plus = ward/sector/parish.
 
 local pg = require("pg-pool")
 
@@ -54,7 +55,8 @@ local CANONICAL_LEVEL_LABELS = {
 -- ---------------------------------------------------------------------------
 -- get_geojson(tenant_id)
 -- Returns a list of GeoJSON feature rows for the tenant.
--- Includes: zones (pre-computed union), parent states, ungrouped LGAs.
+-- Includes: zones (pre-computed union), parent states, ungrouped adm2, grouped adm2, adm3+.
+-- feature_type values: 'zone', 'state', 'adm2', 'adm2_grouped', 'adm3plus'
 -- ---------------------------------------------------------------------------
 function M.get_geojson(tenant_id)
     local sql = [[
@@ -67,13 +69,14 @@ function M.get_geojson(tenant_id)
             z.parent_pcode,
             z.color,
             z.zone_level,
-            array_to_string(z.constituent_pcodes, ',') AS constituent_pcodes
+            array_to_string(z.constituent_pcodes, ',') AS constituent_pcodes,
+            NULL                 AS level_label
         FROM zones z
         WHERE z.tenant_id = $1
 
         UNION ALL
 
-        -- States: derived from the parent of scoped LGAs
+        -- States (adm1): derived from the parent of scoped adm2 features
         SELECT
             ST_AsGeoJSON(a.geom) AS geometry,
             a.pcode,
@@ -82,7 +85,8 @@ function M.get_geojson(tenant_id)
             a.parent_pcode,
             NULL                 AS color,
             NULL::SMALLINT       AS zone_level,
-            NULL                 AS constituent_pcodes
+            NULL                 AS constituent_pcodes,
+            a.level_label
         FROM adm_features a
         WHERE a.adm_level = 1
           AND a.pcode IN (
@@ -94,16 +98,17 @@ function M.get_geojson(tenant_id)
 
         UNION ALL
 
-        -- LGAs in tenant scope that are NOT grouped into any zone
+        -- adm2 features in tenant scope NOT grouped into any zone
         SELECT
             ST_AsGeoJSON(a.geom) AS geometry,
             a.pcode,
             a.name,
-            'lga'                AS feature_type,
+            'adm2'               AS feature_type,
             a.parent_pcode,
             NULL                 AS color,
             NULL::SMALLINT       AS zone_level,
-            NULL                 AS constituent_pcodes
+            NULL                 AS constituent_pcodes,
+            a.level_label
         FROM adm_features a
         JOIN tenant_scope ts ON ts.pcode = a.pcode AND ts.tenant_id = $1
         WHERE a.adm_level = 2
@@ -115,16 +120,17 @@ function M.get_geojson(tenant_id)
 
         UNION ALL
 
-        -- Grouped LGAs: geometry only, for client-side highlight lookups (not rendered)
+        -- Grouped adm2: geometry only, for client-side highlight lookups (not rendered)
         SELECT
             ST_AsGeoJSON(a.geom) AS geometry,
             a.pcode,
             a.name,
-            'grouped_lga'        AS feature_type,
+            'adm2_grouped'       AS feature_type,
             a.parent_pcode,
             NULL                 AS color,
             NULL::SMALLINT       AS zone_level,
-            NULL                 AS constituent_pcodes
+            NULL                 AS constituent_pcodes,
+            a.level_label
         FROM adm_features a
         JOIN tenant_scope ts ON ts.pcode = a.pcode AND ts.tenant_id = $1
         WHERE a.adm_level = 2
@@ -137,16 +143,17 @@ function M.get_geojson(tenant_id)
         UNION ALL
 
         -- adm3+ features: geometry for client-side highlight (not rendered as a layer)
-        -- Covers Wards (NG), Sectors (RW), and any other sub-district admin level
+        -- Covers wards (NG), sectors (RW), parishes (UG), and any other sub-district level
         SELECT
             ST_AsGeoJSON(a.geom) AS geometry,
             a.pcode,
             a.name,
-            'ward'               AS feature_type,
+            'adm3plus'           AS feature_type,
             a.parent_pcode,
             NULL                 AS color,
             NULL::SMALLINT       AS zone_level,
-            NULL                 AS constituent_pcodes
+            NULL                 AS constituent_pcodes,
+            a.level_label
         FROM adm_features a
         JOIN tenant_scope ts ON ts.pcode = a.pcode AND ts.tenant_id = $1
         WHERE a.adm_level >= 3
@@ -156,7 +163,7 @@ end
 
 -- ---------------------------------------------------------------------------
 -- get_hierarchy(tenant_id)
--- Returns three result sets: states, zones, lgas.
+-- Returns three result sets: states, zones, adm2 features.
 -- Caller assembles the tree.
 -- ---------------------------------------------------------------------------
 function M.get_hierarchy_states(tenant_id)
@@ -187,7 +194,7 @@ function M.get_hierarchy_zones(tenant_id)
     return pg.exec(sql, {tenant_id})
 end
 
-function M.get_hierarchy_lgas(tenant_id)
+function M.get_hierarchy_adm2(tenant_id)
     local sql = [[
         SELECT a.pcode, a.name, a.parent_pcode, a.level_label, a.area_sqkm, a.center_lat, a.center_lon
         FROM adm_features a
@@ -245,8 +252,8 @@ end
 
 -- ---------------------------------------------------------------------------
 -- region_lookup(tenant_id, lat, lon)
--- Returns full hierarchy path for the point: country → state → zone? → lga
--- Checks custom zones first (higher specificity), falls back to raw LGA.
+-- Returns full hierarchy path for the point: country → state → zone? → adm2
+-- Checks custom zones first (higher specificity), falls back to raw adm2.
 -- ---------------------------------------------------------------------------
 function M.region_lookup(tenant_id, lat, lon)
     -- Find all zones containing the point, deepest first.
@@ -262,10 +269,10 @@ function M.region_lookup(tenant_id, lat, lon)
     local zone_rows, err = pg.exec(zone_sql, {tenant_id, lat, lon})
     if err then return nil, err end
 
-    -- Always look up the LGA (adm_level=2) containing the point
-    local lga_sql = [[
-        SELECT a.pcode AS lga_pcode, a.name AS lga_name,
-               a.parent_pcode AS state_pcode, s.name AS state_name
+    -- Always look up the adm2 feature containing the point
+    local adm2_sql = [[
+        SELECT a.pcode AS adm2_pcode, a.name AS adm2_name,
+               a.parent_pcode AS adm1_pcode, s.name AS adm1_name
         FROM adm_features a
         JOIN tenant_scope ts ON ts.pcode = a.pcode AND ts.tenant_id = $1
         JOIN adm_features s  ON s.pcode = a.parent_pcode
@@ -273,10 +280,10 @@ function M.region_lookup(tenant_id, lat, lon)
           AND ST_Contains(a.geom, ST_SetSRID(ST_MakePoint($3, $2), 4326))
         LIMIT 1
     ]]
-    local lga_result, err2 = pg.exec(lga_sql, {tenant_id, lat, lon})
+    local adm2_result, err2 = pg.exec(adm2_sql, {tenant_id, lat, lon})
     if err2 then return nil, err2 end
 
-    local lga_row = lga_result and lga_result[1]
+    local adm2_row = adm2_result and adm2_result[1]
 
     if zone_rows and #zone_rows > 0 then
         -- Build a lookup from zone_pcode -> zone row
@@ -299,38 +306,38 @@ function M.region_lookup(tenant_id, lat, lon)
             current = parent
         end
 
-        -- state_pcode is the parent of the topmost zone in the chain
-        local state_pcode = chain[1].parent_pcode
-        local state_name  = ""
-        if lga_row and lga_row.state_pcode == state_pcode then
-            state_name = lga_row.state_name
+        -- adm1_pcode is the parent of the topmost zone in the chain
+        local adm1_pcode = chain[1].parent_pcode
+        local adm1_name  = ""
+        if adm2_row and adm2_row.adm1_pcode == adm1_pcode then
+            adm1_name = adm2_row.adm1_name
         else
             -- fetch state name directly
             local s_res, _ = pg.exec(
                 "SELECT name FROM adm_features WHERE pcode = $1 AND adm_level = 1",
-                {state_pcode}
+                {adm1_pcode}
             )
-            if s_res and #s_res > 0 then state_name = s_res[1].name end
+            if s_res and #s_res > 0 then adm1_name = s_res[1].name end
         end
 
         return {
             matched_level = "zone",
-            state_pcode   = state_pcode,
-            state_name    = state_name,
+            adm1_pcode    = adm1_pcode,
+            adm1_name     = adm1_name,
             zone_chain    = chain,  -- ordered shallowest → deepest
-            lga_pcode     = lga_row and lga_row.lga_pcode,
-            lga_name      = lga_row and lga_row.lga_name,
+            adm2_pcode    = adm2_row and adm2_row.adm2_pcode,
+            adm2_name     = adm2_row and adm2_row.adm2_name,
         }, nil
     end
 
-    -- Fallback: raw LGA only
-    if lga_row then
+    -- Fallback: raw adm2 only
+    if adm2_row then
         return {
-            matched_level = "lga",
-            state_pcode   = lga_row.state_pcode,
-            state_name    = lga_row.state_name,
-            lga_pcode     = lga_row.lga_pcode,
-            lga_name      = lga_row.lga_name,
+            matched_level = "adm2",
+            adm1_pcode    = adm2_row.adm1_pcode,
+            adm1_name     = adm2_row.adm1_name,
+            adm2_pcode    = adm2_row.adm2_pcode,
+            adm2_name     = adm2_row.adm2_name,
         }, nil
     end
 
@@ -382,7 +389,8 @@ end
 
 -- ---------------------------------------------------------------------------
 -- get_geo_nodes_geojson(tenant_id) — for /boundaries/geojson endpoint
--- Returns geo nodes + states + ungrouped LGAs + grouped LGAs + wards
+-- Returns geo nodes + states + ungrouped adm2 + grouped adm2 + adm3+
+-- feature_type values: 'geo_node', 'state', 'adm2', 'adm2_grouped', 'adm3plus'
 -- ---------------------------------------------------------------------------
 function M.get_geo_nodes_geojson(tenant_id)
     local sql = [[
@@ -395,7 +403,8 @@ function M.get_geo_nodes_geojson(tenant_id)
             n.state_pcode                                    AS parent_pcode,
             n.color,
             l.level_order::SMALLINT                          AS zone_level,
-            array_to_string(n.constituent_pcodes, ',')       AS constituent_pcodes
+            array_to_string(n.constituent_pcodes, ',')       AS constituent_pcodes,
+            l.level_label
         FROM geo_hierarchy_nodes n
         JOIN geo_hierarchy_levels l ON l.id = n.level_id
         WHERE n.tenant_id = $1
@@ -403,7 +412,7 @@ function M.get_geo_nodes_geojson(tenant_id)
 
         UNION ALL
 
-        -- States: derived from the parent of scoped LGAs
+        -- States (adm1): derived from the parent of scoped adm2 features
         SELECT
             ST_AsGeoJSON(a.geom) AS geometry,
             a.pcode,
@@ -412,7 +421,8 @@ function M.get_geo_nodes_geojson(tenant_id)
             a.parent_pcode,
             NULL                 AS color,
             NULL::SMALLINT       AS zone_level,
-            NULL                 AS constituent_pcodes
+            NULL                 AS constituent_pcodes,
+            a.level_label
         FROM adm_features a
         WHERE a.adm_level = 1
           AND a.pcode IN (
@@ -424,16 +434,17 @@ function M.get_geo_nodes_geojson(tenant_id)
 
         UNION ALL
 
-        -- LGAs in tenant scope NOT assigned to any geo hierarchy node
+        -- adm2 features in tenant scope NOT assigned to any geo hierarchy node
         SELECT
             ST_AsGeoJSON(a.geom) AS geometry,
             a.pcode,
             a.name,
-            'lga'                AS feature_type,
+            'adm2'               AS feature_type,
             a.parent_pcode,
             NULL                 AS color,
             NULL::SMALLINT       AS zone_level,
-            NULL                 AS constituent_pcodes
+            NULL                 AS constituent_pcodes,
+            a.level_label
         FROM adm_features a
         JOIN tenant_scope ts ON ts.pcode = a.pcode AND ts.tenant_id = $1
         WHERE a.adm_level = 2
@@ -445,16 +456,17 @@ function M.get_geo_nodes_geojson(tenant_id)
 
         UNION ALL
 
-        -- Grouped LGAs: geometry for client-side highlight (not rendered as layer)
+        -- Grouped adm2: geometry for client-side highlight (not rendered as layer)
         SELECT
             ST_AsGeoJSON(a.geom) AS geometry,
             a.pcode,
             a.name,
-            'grouped_lga'        AS feature_type,
+            'adm2_grouped'       AS feature_type,
             a.parent_pcode,
             NULL                 AS color,
             NULL::SMALLINT       AS zone_level,
-            NULL                 AS constituent_pcodes
+            NULL                 AS constituent_pcodes,
+            a.level_label
         FROM adm_features a
         JOIN tenant_scope ts ON ts.pcode = a.pcode AND ts.tenant_id = $1
         WHERE a.adm_level = 2
@@ -466,16 +478,17 @@ function M.get_geo_nodes_geojson(tenant_id)
 
         UNION ALL
 
-        -- adm3+ features (wards, sectors, etc.)
+        -- adm3+ features: wards (NG), sectors (RW), parishes (UG), etc.
         SELECT
             ST_AsGeoJSON(a.geom) AS geometry,
             a.pcode,
             a.name,
-            'ward'               AS feature_type,
+            'adm3plus'           AS feature_type,
             a.parent_pcode,
             NULL                 AS color,
             NULL::SMALLINT       AS zone_level,
-            NULL                 AS constituent_pcodes
+            NULL                 AS constituent_pcodes,
+            a.level_label
         FROM adm_features a
         JOIN tenant_scope ts ON ts.pcode = a.pcode AND ts.tenant_id = $1
         WHERE a.adm_level >= 3

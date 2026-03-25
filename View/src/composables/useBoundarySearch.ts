@@ -50,12 +50,12 @@ export function useBoundarySearch() {
           state.pcode.toLowerCase().includes(q);
         if (stateMatches) return { ...state };
 
-        const matchingLgas = state.lgas.filter(
-          (lga) =>
-            lga.name.toLowerCase().includes(q) ||
-            lga.pcode.toLowerCase().includes(q),
+        const matchingAdm2s = state.adm2s.filter(
+          (a) =>
+            a.name.toLowerCase().includes(q) ||
+            a.pcode.toLowerCase().includes(q),
         );
-        if (matchingLgas.length > 0) return { ...state, lgas: matchingLgas };
+        if (matchingAdm2s.length > 0) return { ...state, adm2s: matchingAdm2s };
 
         // Search geo_hierarchy_nodes children tree (Senatorial Districts, Sectors, etc.)
         if (matchesInTree(state.children, q)) return { ...state };
@@ -82,7 +82,7 @@ export function useBoundarySearch() {
   const filteredLGANames = computed(() => {
     if (!boundaryHierarchy.value) return [];
     const q = boundarySearch.value.toLowerCase().trim();
-    const allLgas = activeStates.value.flatMap((s) => s.lgas);
+    const allLgas = activeStates.value.flatMap((s) => s.adm2s);
     if (!q) {
       return allLgas.map((l) => l.name).sort((a, b) => a.localeCompare(b));
     }

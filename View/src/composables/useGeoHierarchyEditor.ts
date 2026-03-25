@@ -108,8 +108,8 @@ export function useGeoHierarchyEditor() {
   /** Human-readable label for the adm2 unit (LGA / District / Sub-County …) */
   const adm2Label = computed<string>(() => {
     for (const s of rawHierarchy.value?.states ?? []) {
-      const lgas = (s as any).lgas;
-      if (lgas?.length && lgas[0].level_label) return lgas[0].level_label as string;
+      const adm2s = (s as any).adm2s;
+      if (adm2s?.length && adm2s[0].level_label) return adm2s[0].level_label as string;
     }
     return 'Area';
   });
@@ -172,14 +172,14 @@ export function useGeoHierarchyEditor() {
     if (geoNodes.value.some(n => n.state_pcode === statePcode)) return;
 
     const state = rawHierarchy.value?.states?.find((s: any) => s.pcode === statePcode);
-    const lgas: any[] = (state as any)?.lgas ?? [];
-    if (!lgas.length) return;
+    const adm2s: any[] = (state as any)?.adm2s ?? [];
+    if (!adm2s.length) return;
 
     // Collect all adm2 pcodes + adm3+ children (sectors, wards, etc.)
     const allPcodes = new Set<string>();
-    for (const lga of lgas) {
-      allPcodes.add(lga.pcode);
-      for (const child of (lga.children ?? []) as any[]) allPcodes.add(child.pcode);
+    for (const adm2 of adm2s) {
+      allPcodes.add(adm2.pcode);
+      for (const child of (adm2.children ?? []) as any[]) allPcodes.add(child.pcode);
     }
 
     // Temporarily set selectedRawPcodes and use assignAreasToParent machinery
@@ -290,11 +290,11 @@ export function useGeoHierarchyEditor() {
     const pcodeInfo = new Map<string, { name: string; level_label: string }>();
     const sectorToDistrictPcode = new Map<string, string>();
     for (const state of rawHierarchy.value?.states ?? []) {
-      for (const lga of (state as any).lgas ?? []) {
-        pcodeInfo.set(lga.pcode, { name: lga.name, level_label: lga.level_label ?? adm2Label.value });
-        for (const child of (lga.children ?? []) as any[]) {
+      for (const adm2 of (state as any).adm2s ?? []) {
+        pcodeInfo.set(adm2.pcode, { name: adm2.name, level_label: adm2.level_label ?? adm2Label.value });
+        for (const child of (adm2.children ?? []) as any[]) {
           pcodeInfo.set(child.pcode, { name: child.name, level_label: child.level_label ?? adm2Label.value });
-          sectorToDistrictPcode.set(child.pcode, lga.pcode);
+          sectorToDistrictPcode.set(child.pcode, adm2.pcode);
         }
       }
     }

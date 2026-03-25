@@ -208,7 +208,7 @@ export function useMapLayers() {
 
     // adm3+ features (Wards, Sectors, etc.): render as subtle outlines visible when zoomed in
     const wardFeatures = allBoundaryFeatures.filter(
-      (f) => f.properties?.feature_type === 'ward',
+      (f) => f.properties?.feature_type === 'adm3plus',
     );
     const wardCollection = { type: 'FeatureCollection', features: wardFeatures };
     if (map.getSource('ward-overlay')) {
