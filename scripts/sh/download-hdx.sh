@@ -184,7 +184,7 @@ echo "================================================================"
 [[ ${#failed[@]}    -gt 0 ]] && echo "Failed:    ${failed[*]}"
 
 echo ""
-warn "Rwanda excluded: HDX package has no GeoJSON (only SHP)."
+info "Rwanda: HDX package (cod-ab-rwa) has only SHP — run scripts/extract-rwanda-adm1.py to generate data/hdx/rwanda_adm1.geojson from OSM boundaries."
 warn "India excluded: no COD-AB package on HDX."
 
 if [[ ${#succeeded[@]} -gt 0 ]]; then
