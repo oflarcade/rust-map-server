@@ -243,17 +243,19 @@ for SLUG in "${STATE_SLUGS[@]}"; do
     STATE_INDEX=$((STATE_INDEX + 1))
 
     BOUNDS=$(python3 -c "
-import json
-with open('$BOUNDS_FILE') as f:
+import json, sys
+slug = sys.argv[1]
+with open(sys.argv[2]) as f:
     data = json.load(f)
-print(data['$SLUG']['bounds'])
-")
+print(data[slug]['bounds'])
+" "$SLUG" "$BOUNDS_FILE")
     STATE_NAME=$(python3 -c "
-import json
-with open('$BOUNDS_FILE') as f:
+import json, sys
+slug = sys.argv[1]
+with open(sys.argv[2]) as f:
     data = json.load(f)
-print(data['$SLUG']['name'])
-")
+print(data[slug]['name'])
+" "$SLUG" "$BOUNDS_FILE")
 
     STATE_OUTPUT="$OUTPUT_DIR/${COUNTRY}-${SLUG}.pmtiles"
 

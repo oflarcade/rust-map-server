@@ -160,11 +160,11 @@ for DEF in "${TENANT_DEFS[@]}"; do
     if [ ${#T_STATES[@]} -eq 1 ]; then
         SLUG=$(echo "${T_STATES[0]}" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
         BOUNDS=$(python3 -c "
-import json
-with open('$BOUNDS_FILE') as f:
+import json, sys
+with open(sys.argv[2]) as f:
     data = json.load(f)
-print(data['$SLUG']['bounds'])
-")
+print(data[sys.argv[1]]['bounds'])
+" "$SLUG" "$BOUNDS_FILE")
     else
         BOUNDS=$(python3 -c "
 import json

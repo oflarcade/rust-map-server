@@ -83,7 +83,7 @@ def main():
         max_lon += buffer
         max_lat += buffer
 
-        slug = state.lower().replace(" ", "-")
+        slug = state.lower().replace(" ", "-").replace("'", "").replace("'", "")
 
         filtered = {"type": "FeatureCollection", "features": features}
         out_path = os.path.join(output_dir, f"{slug}.json")
